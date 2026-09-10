@@ -15,6 +15,8 @@ import '../profile/profile_screen.dart';
 import '../chat/chat_detail_screen.dart';
 import '../../widgets/gpay_simulation_dialog.dart';
 import 'shop_storefront_screen.dart';
+import 'cart_screen.dart';
+import '../../models/cart_item_model.dart';
 import '../../utils/app_dialog.dart';
 
 class ProductDetailScreen extends StatefulWidget {
@@ -251,10 +253,14 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             userId: currentUser.uid, product: widget.product);
       }
       if (!mounted) return;
-      AppPopup.show(context,
-          message:
-              '${widget.product.name}${_qty > 1 ? ' x$_qty' : ''} added to cart!',
-          type: PopupType.success);
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      AppPopup.show(
+        context,
+        message:
+            '${widget.product.name}${_qty > 1 ? ' x$_qty' : ''} added to cart!',
+        type: PopupType.success,
+        duration: const Duration(seconds: 2),
+      );
     } catch (e) {
       if (!mounted) return;
       AppPopup.show(context,
@@ -321,72 +327,13 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
     final profile = await _firestoreService.getCustomerProfile(userId);
     if (!mounted) return null;
 
-    final addressController = TextEditingController(
-      text: (profile?.location ?? '').trim(),
-    );
+    final defaultAddress = (profile?.location ?? '').trim();
 
-    final result = await showDialog<_CheckoutDetails>(
+    return showDialog<_CheckoutDetails>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
-        title: const Text('Confirm Delivery Address'),
-        content: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 360),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  'Please confirm this address before payment. You can change it for this order.',
-                  style: TextStyle(fontSize: 13, height: 1.4),
-                ),
-                const SizedBox(height: 14),
-                TextField(
-                  controller: addressController,
-                  maxLines: 2,
-                  decoration: InputDecoration(
-                    labelText: 'Address',
-                    hintText: 'House / street / area',
-                    prefixIcon: const Icon(Icons.home_outlined),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              FocusManager.instance.primaryFocus?.unfocus();
-              final address = addressController.text.trim();
-              if (address.isEmpty) {
-                AppPopup.show(
-                  ctx,
-                  message: 'Address is required',
-                  type: PopupType.warning,
-                );
-                return;
-              }
-              Navigator.of(ctx).pop(
-                _CheckoutDetails(address: address),
-              );
-            },
-            child: const Text('Continue'),
-          ),
-        ],
-      ),
+      builder: (ctx) => _DeliveryAddressDialog(savedAddress: defaultAddress),
     );
-
-    addressController.dispose();
-    return result;
   }
 
   void _viewFullscreenImage(int initialIndex) {
@@ -494,6 +441,68 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             color: Colors.white, fontSize: 17, fontWeight: FontWeight.w600),
       ),
       actions: [
+        Builder(
+          builder: (context) {
+            final uid = FirebaseAuth.instance.currentUser?.uid;
+            return Stack(
+              alignment: Alignment.center,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.shopping_cart,
+                      color: Colors.white, size: 24),
+                  tooltip: 'View Cart',
+                  onPressed: () {
+                    if (uid == null) {
+                      AppPopup.show(
+                        context,
+                        message: 'Please sign in to view your cart',
+                        type: PopupType.info,
+                      );
+                    } else {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (_) => const CartScreen()),
+                      );
+                    }
+                  },
+                ),
+                if (uid != null)
+                  StreamBuilder<List<CartItemModel>>(
+                    stream: _firestoreService.streamCartItems(uid),
+                    builder: (context, snapshot) {
+                      final itemCount = snapshot.data?.fold<int>(
+                              0, (sum, item) => sum + item.quantity) ??
+                          0;
+                      if (itemCount == 0) return const SizedBox.shrink();
+                      return Positioned(
+                        right: 4,
+                        top: 6,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: const BoxDecoration(
+                            color: Colors.amber,
+                            shape: BoxShape.circle,
+                          ),
+                          constraints: const BoxConstraints(
+                              minWidth: 18, minHeight: 18),
+                          child: Text(
+                            '$itemCount',
+                            style: const TextStyle(
+                              color: Colors.black,
+                              fontSize: 10,
+                              fontWeight: FontWeight.bold,
+                            ),
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+              ],
+            );
+          },
+        ),
         IconButton(
             icon: const Icon(Icons.share_outlined, color: Colors.white),
             onPressed: _shareProduct),
@@ -841,6 +850,43 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 disabledBackgroundColor: Colors.grey[300],
                 disabledForegroundColor: Colors.grey[500],
                 elevation: 0,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+              ),
+            ),
+          ),
+          const SizedBox(height: 10),
+
+          // View Cart
+          SizedBox(
+            width: double.infinity,
+            height: 50,
+            child: OutlinedButton.icon(
+              onPressed: () {
+                final uid = FirebaseAuth.instance.currentUser?.uid;
+                if (uid == null) {
+                  AppPopup.show(context,
+                      message: 'Please sign in to view your cart',
+                      type: PopupType.info);
+                } else {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (_) => const CartScreen()),
+                  );
+                }
+              },
+              icon: const Icon(Icons.shopping_cart_rounded,
+                  size: 20, color: AppTheme.primaryOrange),
+              label: const Text(
+                'View My Cart 🛒',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: AppTheme.primaryOrange,
+                ),
+              ),
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: AppTheme.primaryOrange, width: 2),
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(10)),
               ),
@@ -1351,5 +1397,132 @@ class _FullScreenImageViewerState extends State<_FullScreenImageViewer> {
   void dispose() {
     _pageController.dispose();
     super.dispose();
+  }
+}
+
+class _DeliveryAddressDialog extends StatefulWidget {
+  final String savedAddress;
+
+  const _DeliveryAddressDialog({required this.savedAddress});
+
+  @override
+  State<_DeliveryAddressDialog> createState() => _DeliveryAddressDialogState();
+}
+
+class _DeliveryAddressDialogState extends State<_DeliveryAddressDialog> {
+  late final TextEditingController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.savedAddress);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(18)),
+      title: const Text(
+        'Confirm Delivery Address',
+        style: TextStyle(fontWeight: FontWeight.bold, fontSize: 18),
+      ),
+      content: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 380),
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Enter or edit your delivery address for this order.',
+                style: TextStyle(fontSize: 13, color: Color(0xFF64748B), height: 1.4),
+              ),
+              const SizedBox(height: 14),
+              TextField(
+                controller: _controller,
+                maxLines: 2,
+                decoration: InputDecoration(
+                  labelText: 'Delivery Address',
+                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                  hintText: 'Door no, Street, Area, City, State, PIN',
+                  hintMaxLines: 2,
+                  hintStyle: TextStyle(
+                    color: Colors.grey.shade400,
+                    fontSize: 13,
+                  ),
+                  prefixIcon: const Icon(Icons.home_outlined),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+              ),
+              if (widget.savedAddress.isNotEmpty) ...[
+                const SizedBox(height: 8),
+                InkWell(
+                  onTap: () {
+                    setState(() {
+                      _controller.text = widget.savedAddress;
+                    });
+                  },
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 2),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.bookmark_added_outlined,
+                            size: 15, color: Color(0xFF1976D2)),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            'Reset to saved: ${widget.savedAddress}',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: Color(0xFF1976D2),
+                              fontWeight: FontWeight.w500,
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: () {
+            FocusManager.instance.primaryFocus?.unfocus();
+            final address = _controller.text.trim();
+            if (address.isEmpty) {
+              AppPopup.show(
+                context,
+                message: 'Please enter a delivery address',
+                type: PopupType.warning,
+              );
+              return;
+            }
+            Navigator.of(context).pop(
+              _CheckoutDetails(address: address),
+            );
+          },
+          child: const Text('Continue'),
+        ),
+      ],
+    );
   }
 }

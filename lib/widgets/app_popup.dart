@@ -119,29 +119,29 @@ class _AnimatedPopupWidgetState extends State<_AnimatedPopupWidget>
     super.dispose();
   }
 
-  Color get _backgroundColor {
+  Color get _accentColor {
     switch (widget.type) {
       case PopupType.success:
-        return const Color(0xFF4CAF50);
+        return const Color(0xFF10B981);
       case PopupType.error:
-        return const Color(0xFFE53935);
+        return const Color(0xFFEF4444);
       case PopupType.warning:
-        return const Color(0xFFFF9800);
+        return const Color(0xFFF59E0B);
       case PopupType.info:
-        return const Color(0xFF2196F3);
+        return const Color(0xFF3B82F6);
     }
   }
 
   IconData get _defaultIcon {
     switch (widget.type) {
       case PopupType.success:
-        return Icons.check_circle;
+        return Icons.check_circle_rounded;
       case PopupType.error:
-        return Icons.error;
+        return Icons.error_outline_rounded;
       case PopupType.warning:
-        return Icons.warning;
+        return Icons.warning_amber_rounded;
       case PopupType.info:
-        return Icons.info;
+        return Icons.info_outline_rounded;
     }
   }
 
@@ -165,41 +165,62 @@ class _AnimatedPopupWidgetState extends State<_AnimatedPopupWidget>
             child: GestureDetector(
               onTap: () {}, // Prevent tapping inside from dismissing
               child: Container(
-                margin: const EdgeInsets.symmetric(horizontal: 32),
+                margin: const EdgeInsets.symmetric(horizontal: 28),
+                constraints: const BoxConstraints(maxWidth: 420),
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 20,
+                  horizontal: 20,
+                  vertical: 16,
                 ),
                 decoration: BoxDecoration(
-                  color: _backgroundColor,
-                  borderRadius: BorderRadius.circular(20),
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(22),
+                  border: Border.all(
+                    color: const Color(0xFFE2E8F0),
+                    width: 1.2,
+                  ),
                   boxShadow: [
                     BoxShadow(
-                      color: _backgroundColor.withValues(alpha: 0.4),
-                      blurRadius: 24,
-                      spreadRadius: 2,
-                      offset: const Offset(0, 8),
+                      color: Colors.black.withValues(alpha: 0.12),
+                      blurRadius: 32,
+                      offset: const Offset(0, 12),
+                    ),
+                    BoxShadow(
+                      color: _accentColor.withValues(alpha: 0.12),
+                      blurRadius: 18,
+                      offset: const Offset(0, 4),
                     ),
                   ],
                 ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(
-                      widget.icon ?? _defaultIcon,
-                      color: Colors.white,
-                      size: 28,
+                    Container(
+                      width: 42,
+                      height: 42,
+                      decoration: BoxDecoration(
+                        color: _accentColor.withValues(alpha: 0.12),
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: _accentColor.withValues(alpha: 0.28),
+                          width: 1.2,
+                        ),
+                      ),
+                      child: Icon(
+                        widget.icon ?? _defaultIcon,
+                        color: _accentColor,
+                        size: 22,
+                      ),
                     ),
                     const SizedBox(width: 14),
                     Flexible(
                       child: Text(
                         widget.message,
                         style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 15,
+                          color: Color(0xFF1E293B),
+                          fontSize: 14.5,
                           fontWeight: FontWeight.w600,
+                          height: 1.4,
                         ),
-                        textAlign: TextAlign.center,
                       ),
                     ),
                   ],

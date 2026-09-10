@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../../models/order_model.dart';
+import '../../models/user_model.dart';
+import '../../services/firestore_service.dart';
 import '../../utils/app_helpers.dart';
+import '../chat/chat_detail_screen.dart';
 
 class OrderTrackingScreen extends StatelessWidget {
   const OrderTrackingScreen({super.key, required this.order});
@@ -43,112 +47,139 @@ class OrderTrackingScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final timeline = order.statusTimeline;
-    final isCancelled = order.status == 'cancelled';
-    final isFailedDelivery = order.status == 'failed_delivery';
+    return StreamBuilder<OrderModel?>(
+      stream: FirestoreService().streamOrder(order.id),
+      initialData: order,
+      builder: (context, snapshot) {
+        final currentOrder = snapshot.data ?? order;
+        final timeline = currentOrder.statusTimeline;
+        final isCancelled = currentOrder.status == 'cancelled';
+        final isFailedDelivery = currentOrder.status == 'failed_delivery';
 
-    // Find current step index
-    int currentStep = -1;
-    for (int i = _steps.length - 1; i >= 0; i--) {
-      if (timeline.containsKey(_steps[i].key)) {
-        currentStep = i;
-        break;
-      }
-    }
-    if (currentStep == -1 && !isCancelled) currentStep = 0;
+        // Find current step index based on status or latest recorded timeline entry
+        int currentStep = -1;
+        for (int i = _steps.length - 1; i >= 0; i--) {
+          if (timeline.containsKey(_steps[i].key) ||
+              currentOrder.status == _steps[i].key) {
+            currentStep = i;
+            break;
+          }
+        }
+        if (currentStep == -1 && !isCancelled) currentStep = 0;
 
-    return Scaffold(
-      backgroundColor: const Color(0xFFF5F6FA),
-      appBar: AppBar(
-        flexibleSpace: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              colors: [Color(0xFF6A11CB), Color(0xFF2575FC)],
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
+        return Scaffold(
+          backgroundColor: const Color(0xFFF5F6FA),
+          appBar: AppBar(
+            flexibleSpace: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFF6A11CB), Color(0xFF2575FC)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+            ),
+            title: const Text(
+              'Track Order',
+              style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+            ),
+            iconTheme: const IconThemeData(color: Colors.white),
+            elevation: 0,
+          ),
+          body: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Order Summary card
+                _OrderSummaryCard(order: currentOrder),
+                const SizedBox(height: 24),
+
+                // Cancelled / failed banner
+                if (isCancelled || isFailedDelivery) ...[
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: Colors.red.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.cancel_outlined, color: Colors.red),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            isCancelled
+                                ? 'This order has been cancelled.'
+                                : 'Delivery attempt failed. Contact support.',
+                            style: const TextStyle(
+                                color: Colors.red, fontWeight: FontWeight.w500),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                ],
+
+                // Timeline title
+                const Text(
+                  'Delivery Timeline',
+                  style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+
+                // Timeline steps
+                ...List.generate(_steps.length, (i) {
+                  final step = _steps[i];
+                  // A step is done if present in timeline OR if a later milestone was reached (unless cancelled/failed)
+                  final isDone = timeline.containsKey(step.key) ||
+                      (!isCancelled && !isFailedDelivery && i <= currentStep);
+                  final isCurrent = i == currentStep &&
+                      !isCancelled &&
+                      !isFailedDelivery &&
+                      currentOrder.status != 'delivered';
+                  final isLast = i == _steps.length - 1;
+
+                  // Estimated or actual time for this milestone
+                  DateTime? stepTime = timeline[step.key];
+                  if (stepTime == null && isDone) {
+                    for (int j = i + 1; j < _steps.length; j++) {
+                      if (timeline.containsKey(_steps[j].key)) {
+                        stepTime = timeline[_steps[j].key];
+                        break;
+                      }
+                    }
+                    stepTime ??= currentOrder.createdAt;
+                  }
+
+                  return _TimelineRow(
+                    step: step,
+                    isDone: isDone,
+                    isCurrent: isCurrent,
+                    isLast: isLast,
+                    time: stepTime,
+                  );
+                }),
+
+                // Delivery partner section
+                if (currentOrder.deliveryPartnerId != null &&
+                    currentOrder.deliveryPartnerId!.isNotEmpty) ...[
+                  const SizedBox(height: 24),
+                  _DeliveryPartnerCard(
+                    order: currentOrder,
+                    partnerId: currentOrder.deliveryPartnerId!,
+                    partnerName:
+                        currentOrder.deliveryPartnerName ?? 'Delivery Partner',
+                    estimatedDelivery: currentOrder.estimatedDelivery,
+                  ),
+                ],
+              ],
             ),
           ),
-        ),
-        title: const Text(
-          'Track Order',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-        ),
-        iconTheme: const IconThemeData(color: Colors.white),
-        elevation: 0,
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(20),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Order Summary card
-            _OrderSummaryCard(order: order),
-            const SizedBox(height: 24),
-
-            // Cancelled / failed banner
-            if (isCancelled || isFailedDelivery) ...[
-              Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.red.withValues(alpha: 0.08),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: Colors.red.withValues(alpha: 0.3)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.cancel_outlined, color: Colors.red),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        isCancelled
-                            ? 'This order has been cancelled.'
-                            : 'Delivery attempt failed. Contact support.',
-                        style: const TextStyle(
-                            color: Colors.red, fontWeight: FontWeight.w500),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-            ],
-
-            // Timeline title
-            const Text(
-              'Delivery Timeline',
-              style: TextStyle(fontSize: 17, fontWeight: FontWeight.bold),
-            ),
-            const SizedBox(height: 16),
-
-            // Timeline steps
-            ...List.generate(_steps.length, (i) {
-              final step = _steps[i];
-              final isDone = timeline.containsKey(step.key);
-              final isCurrent = i == currentStep && !isDone;
-              final isLast = i == _steps.length - 1;
-              final stepTime = timeline[step.key];
-
-              return _TimelineRow(
-                step: step,
-                isDone: isDone,
-                isCurrent: isCurrent,
-                isLast: isLast,
-                time: stepTime,
-              );
-            }),
-
-            // Delivery partner section
-            if (order.deliveryPartnerId != null &&
-                order.deliveryPartnerId!.isNotEmpty) ...[
-              const SizedBox(height: 24),
-              _DeliveryPartnerCard(
-                partnerName: order.deliveryPartnerName ?? 'Delivery Partner',
-                estimatedDelivery: order.estimatedDelivery,
-              ),
-            ],
-          ],
-        ),
-      ),
+        );
+      },
     );
   }
 }
@@ -244,7 +275,8 @@ class _OrderSummaryCard extends StatelessWidget {
               value: order.deliveryLocation!,
             ),
           ],
-          if ((order.deliveryVerificationCode ?? '').trim().isNotEmpty &&
+          if (FirebaseAuth.instance.currentUser?.uid == order.buyerId &&
+              (order.deliveryVerificationCode ?? '').trim().isNotEmpty &&
               order.status != 'delivered') ...[
             const SizedBox(height: 12),
             Container(
@@ -401,7 +433,11 @@ class _TimelineRow extends StatelessWidget {
                           ]
                         : null,
                   ),
-                  child: Icon(step.icon, color: iconColor, size: 18),
+                  child: Icon(
+                    isDone ? Icons.check_rounded : step.icon,
+                    color: iconColor,
+                    size: isDone ? 20 : 18,
+                  ),
                 ),
                 if (!isLast)
                   Expanded(
@@ -480,61 +516,184 @@ class _TimelineRow extends StatelessWidget {
 
 // ─── Delivery Partner Card ─────────────────────────────────────────────────────
 
-class _DeliveryPartnerCard extends StatelessWidget {
+class _DeliveryPartnerCard extends StatefulWidget {
   const _DeliveryPartnerCard({
+    required this.order,
+    required this.partnerId,
     required this.partnerName,
     this.estimatedDelivery,
   });
+
+  final OrderModel order;
+  final String partnerId;
   final String partnerName;
   final DateTime? estimatedDelivery;
 
   @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFF6B35), Color(0xFFFF8E53)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(16),
-      ),
-      child: Row(
-        children: [
-          const CircleAvatar(
-            radius: 24,
-            backgroundColor: Colors.white30,
-            child: Icon(Icons.person, color: Colors.white, size: 26),
+  State<_DeliveryPartnerCard> createState() => _DeliveryPartnerCardState();
+}
+
+class _DeliveryPartnerCardState extends State<_DeliveryPartnerCard> {
+  bool _isChatLoading = false;
+
+
+
+  Future<void> _openChat() async {
+    if (_isChatLoading) return;
+    setState(() => _isChatLoading = true);
+    try {
+      final chatId = await FirestoreService().ensureDeliveryBuyerChat(
+        orderId: widget.order.id,
+        deliveryPartnerId: widget.partnerId,
+        deliveryPartnerName: widget.partnerName,
+      );
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatDetailScreen(
+            chatId: chatId,
+            otherUserId: widget.partnerId,
+            otherUserName: widget.partnerName,
           ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Delivery Partner',
-                  style: TextStyle(color: Colors.white70, fontSize: 12),
-                ),
-                Text(
-                  partnerName,
-                  style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15),
-                ),
-                if (estimatedDelivery != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    'Est. Delivery: ${AppHelpers.formatDateTime(estimatedDelivery!)}',
-                    style: const TextStyle(color: Colors.white, fontSize: 12),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Could not open chat: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isChatLoading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<UserModel?>(
+      stream: FirestoreService().streamUserModel(widget.partnerId),
+      builder: (context, snapshot) {
+        final partnerUser = snapshot.data;
+        final rawPhone = partnerUser?.phone?.trim() ?? '';
+        final hasPhone = rawPhone.isNotEmpty;
+
+        return Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            gradient: const LinearGradient(
+              colors: [Color(0xFFFF6B35), Color(0xFFFF8E53)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+            ),
+            borderRadius: BorderRadius.circular(16),
+            boxShadow: [
+              BoxShadow(
+                color: const Color(0xFFFF6B35).withValues(alpha: 0.3),
+                blurRadius: 10,
+                offset: const Offset(0, 4),
+              ),
+            ],
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const CircleAvatar(
+                    radius: 24,
+                    backgroundColor: Colors.white30,
+                    child: Icon(Icons.person, color: Colors.white, size: 26),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Delivery Partner',
+                          style: TextStyle(color: Colors.white70, fontSize: 12),
+                        ),
+                        Text(
+                          widget.partnerName,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        if (widget.estimatedDelivery != null) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            'Est. Delivery: ${AppHelpers.formatDateTime(widget.estimatedDelivery!)}',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ],
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            const Icon(Icons.phone, size: 14, color: Colors.white70),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                hasPhone ? rawPhone : 'Contact via chat',
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
                 ],
-              ],
-            ),
+              ),
+              const SizedBox(height: 14),
+              const Divider(color: Colors.white24, height: 1),
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  onPressed: _isChatLoading ? null : _openChat,
+                  icon: _isChatLoading
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.chat_bubble_outline, size: 16, color: Colors.white),
+                  label: const Text(
+                    'Chat with Delivery Partner',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13,
+                    ),
+                  ),
+                  style: OutlinedButton.styleFrom(
+                    side: const BorderSide(color: Colors.white, width: 1.5),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 }

@@ -50,6 +50,7 @@ class _LoginScreenState extends State<LoginScreen>
     _gradCtrl.forward();
     _passwordFocusNode = FocusNode();
     _passwordFocusNode.addListener(() => setState(() {}));
+    _emailController.addListener(() => setState(() {}));
     _passwordController.addListener(() => setState(() {}));
   }
 
@@ -84,81 +85,11 @@ class _LoginScreenState extends State<LoginScreen>
 
   // ── Error dialog ────────────────────────────────────────────────────────────
   void _showErrorDialog(String message) {
-    showDialog<void>(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (ctx) => TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0.8, end: 1.0),
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutBack,
-        builder: (_, scale, child) =>
-            Transform.scale(scale: scale, child: child),
-        child: AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          contentPadding: EdgeInsets.zero,
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 20),
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFFE53935), Color(0xFFFF6F61)],
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                  ),
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(20),
-                    topRight: Radius.circular(20),
-                  ),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(Icons.error_outline_rounded,
-                        color: Colors.white, size: 40),
-                    SizedBox(height: 6),
-                    Text('Sign In Failed',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                        )),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-                child: Text(
-                  message,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontSize: 14.5, color: Color(0xFF333333), height: 1.5),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6A11CB),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                    ),
-                    onPressed: () => Navigator.of(ctx).pop(),
-                    child: const Text('Try Again',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    AppDialog.error(
+      context,
+      message,
+      title: 'Sign In Failed',
+      buttonText: 'Try Again',
     );
   }
 
@@ -357,6 +288,14 @@ class _LoginScreenState extends State<LoginScreen>
                                         hintStyle: TextStyle(
                                           color: Colors.grey[400],
                                           fontSize: 14,
+                                        ),
+                                        suffixText: _emailController.text.isNotEmpty && !_emailController.text.contains('@')
+                                            ? '@gmail.com'
+                                            : null,
+                                        suffixStyle: TextStyle(
+                                          color: Colors.grey[500],
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
                                         ),
                                       ),
                                       validator: (v) {

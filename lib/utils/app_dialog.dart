@@ -52,8 +52,26 @@ class AppDialog {
       title: title ?? 'Heads up',
       message: message,
       buttonText: buttonText,
-      gradientColors: const [Color(0xFFF57C00), Color(0xFFFFB300)],
+      gradientColors: const [Color(0xFF0288D1), Color(0xFF26C6DA)],
       icon: Icons.info_outline_rounded,
+    );
+  }
+
+  static Future<void> warning(
+    BuildContext context,
+    String message, {
+    String? title,
+    String buttonText = 'Understood',
+    VoidCallback? onDismiss,
+  }) {
+    return _show(
+      context,
+      title: title ?? 'Attention Required',
+      message: message,
+      buttonText: buttonText,
+      gradientColors: const [Color(0xFFF57C00), Color(0xFFFFB300)],
+      icon: Icons.warning_amber_rounded,
+      onDismiss: onDismiss,
     );
   }
 
@@ -87,14 +105,18 @@ class AppDialog {
             children: [
               _DialogBody(message: message, gradientColors: gradientColors),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
                 child: Row(
                   children: [
                     Expanded(
                       child: OutlinedButton(
                         style: OutlinedButton.styleFrom(
-                          foregroundColor: gradientColors[0],
-                          side: BorderSide(color: gradientColors[0]),
+                          backgroundColor: const Color(0xFFF8FAFC),
+                          foregroundColor: const Color(0xFF475569),
+                          side: const BorderSide(
+                            color: Color(0xFFCBD5E1),
+                            width: 1.2,
+                          ),
                           shape: RoundedRectangleBorder(
                             borderRadius: BorderRadius.circular(14),
                           ),
@@ -104,13 +126,13 @@ class AppDialog {
                         child: Text(
                           cancelText,
                           style: const TextStyle(
-                            fontWeight: FontWeight.bold,
+                            fontWeight: FontWeight.w600,
                             fontSize: 15,
                           ),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: _GradientButton(
                         label: confirmText,
@@ -158,7 +180,7 @@ class AppDialog {
             children: [
               _DialogBody(message: message, gradientColors: gradientColors),
               Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 18),
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
                 child: SizedBox(
                   width: double.infinity,
                   child: _GradientButton(
@@ -194,27 +216,29 @@ class _DialogShell extends StatelessWidget {
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 32, vertical: 24),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
+        constraints: const BoxConstraints(maxWidth: 380),
         child: Container(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            gradient: const LinearGradient(
-              colors: [Color(0xFFFFFFFF), Color(0xFFF7F8FF)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(color: const Color(0xFFE2E8F0), width: 1.2),
             boxShadow: [
               BoxShadow(
-                color: gradientColors.first.withValues(alpha: 0.24),
-                blurRadius: 28,
+                color: Colors.black.withValues(alpha: 0.12),
+                blurRadius: 36,
                 offset: const Offset(0, 16),
+              ),
+              BoxShadow(
+                color: gradientColors.first.withValues(alpha: 0.08),
+                blurRadius: 20,
+                offset: const Offset(0, 4),
               ),
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(24),
+            borderRadius: BorderRadius.circular(28),
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [header, child],
@@ -241,32 +265,39 @@ class _DialogHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: gradientColors,
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-      ),
+      padding: const EdgeInsets.fromLTRB(24, 28, 24, 8),
+      color: Colors.white,
       child: Column(
         children: [
           Container(
-            padding: const EdgeInsets.all(12),
+            width: 64,
+            height: 64,
             decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.16),
+              gradient: LinearGradient(
+                colors: [
+                  gradientColors.first.withValues(alpha: 0.14),
+                  gradientColors.last.withValues(alpha: 0.08),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+              ),
               shape: BoxShape.circle,
+              border: Border.all(
+                color: gradientColors.first.withValues(alpha: 0.28),
+                width: 1.5,
+              ),
             ),
-            child: Icon(icon, color: Colors.white, size: 30),
+            child: Icon(icon, color: gradientColors.first, size: 30),
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 14),
           Text(
             title,
             textAlign: TextAlign.center,
             style: const TextStyle(
-              color: Colors.white,
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
+              color: Color(0xFF1E293B),
+              fontSize: 20,
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.2,
             ),
           ),
         ],
@@ -288,26 +319,15 @@ class _DialogBody extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          colors: [
-            gradientColors.first.withValues(alpha: 0.08),
-            Colors.white,
-          ],
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(22, 20, 22, 8),
-        child: Text(
-          message,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 14.5,
-            color: Color(0xFF333333),
-            height: 1.55,
-          ),
+      color: Colors.white,
+      padding: const EdgeInsets.fromLTRB(24, 6, 24, 20),
+      child: Text(
+        message,
+        textAlign: TextAlign.center,
+        style: const TextStyle(
+          fontSize: 14.5,
+          color: Color(0xFF475569),
+          height: 1.55,
         ),
       ),
     );
@@ -337,9 +357,9 @@ class _GradientButton extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         boxShadow: [
           BoxShadow(
-            color: gradientColors.last.withValues(alpha: 0.28),
-            blurRadius: 18,
-            offset: const Offset(0, 10),
+            color: gradientColors.first.withValues(alpha: 0.32),
+            blurRadius: 16,
+            offset: const Offset(0, 6),
           ),
         ],
       ),

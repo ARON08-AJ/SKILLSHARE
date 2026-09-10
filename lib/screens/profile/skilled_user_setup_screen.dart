@@ -254,10 +254,14 @@ class _SkilledUserSetupScreenState extends State<SkilledUserSetupScreen> {
         if (!mounted) return;
         setState(() {
           _profileImageBytes = bytes;
+          _profileImage = null;
+          _avatarConfig = null;
         });
       } else {
         setState(() {
           _profileImage = File(image.path);
+          _profileImageBytes = null;
+          _avatarConfig = null;
         });
       }
     } on Exception catch (e) {
@@ -359,6 +363,9 @@ class _SkilledUserSetupScreenState extends State<SkilledUserSetupScreen> {
           'type': 'emoji',
           'avatarKey': avatarKey,
         };
+        _profileImage = null;
+        _profileImageBytes = null;
+        _profileImageUrl = null;
       }
     });
   }
@@ -377,6 +384,9 @@ class _SkilledUserSetupScreenState extends State<SkilledUserSetupScreen> {
 
     setState(() {
       _avatarConfig = config as Map<String, dynamic>;
+      _profileImage = null;
+      _profileImageBytes = null;
+      _profileImageUrl = null;
     });
   }
 
@@ -814,9 +824,13 @@ class _SkilledUserSetupScreenState extends State<SkilledUserSetupScreen> {
 
       // Determine effective profile picture URL - never write empty string
       final String? effectiveProfileUrl;
-      if (finalProfileUrl != null && finalProfileUrl.isNotEmpty) {
+      if (_avatarConfig != null) {
+        effectiveProfileUrl = null;
+      } else if (finalProfileUrl != null && finalProfileUrl.isNotEmpty) {
         effectiveProfileUrl = finalProfileUrl;
-      } else if (currentProfile?.profilePicture != null &&
+      } else if (_profileImage == null &&
+          _profileImageBytes == null &&
+          currentProfile?.profilePicture != null &&
           currentProfile!.profilePicture!.isNotEmpty) {
         effectiveProfileUrl = currentProfile.profilePicture;
       } else {
@@ -847,7 +861,7 @@ class _SkilledUserSetupScreenState extends State<SkilledUserSetupScreen> {
         projectCount: currentProfile?.projectCount ?? 0,
         companyEndorsementCount: currentProfile?.companyEndorsementCount ?? 0,
         isVerified: _isVerified,
-        verifiedAt: _isVerified ? DateTime.now() : null,
+        verifiedAt: _isVerified ? (currentProfile?.verifiedAt ?? DateTime.now()) : null,
         avatarConfig: _avatarConfig,
         createdAt: currentProfile?.createdAt ?? DateTime.now(),
         updatedAt: DateTime.now(),
@@ -856,50 +870,48 @@ class _SkilledUserSetupScreenState extends State<SkilledUserSetupScreen> {
       final success = await userProvider.updateProfile(profile);
       List<String> validCredentialLinks = const <String>[];
       if (success) {
-        if (mounted) {
-          setState(
-              () => _uploadStatusMessage = 'Checking certification links...');
+        if (requestedCredentialLinks.isNotEmpty) {
+          if (mounted) {
+            setState(
+                () => _uploadStatusMessage = 'Checking certification links...');
+          }
+          try {
+            validCredentialLinks =
+                await _firestoreService.savePrivateSkilledCredentialLinks(
+              userId: widget.userId,
+              rawLinks: requestedCredentialLinks,
+            );
+          } catch (e) {
+            debugPrint('Warning: Could not save credential links: $e');
+          }
         }
-        validCredentialLinks =
-            await _firestoreService.savePrivateSkilledCredentialLinks(
-          userId: widget.userId,
-          rawLinks: requestedCredentialLinks,
-        );
         await userProvider.loadProfile(widget.userId);
-      }
-
-      // Save animated avatar config to users collection
-      if (_avatarConfig != null) {
-        await FirestoreService().saveAvatarConfig(widget.userId, _avatarConfig);
       }
 
       if (!mounted) return;
 
       if (success) {
-        // Keep auth provider user in sync immediately so avatar/photo updates
-        // render across Home/Profile without waiting for a full reload.
-        if (authProvider.currentUser != null) {
-          final syncedUser = authProvider.currentUser!.copyWith(
-            profilePhoto:
-                effectiveProfileUrl ?? authProvider.currentUser!.profilePhoto,
-            avatarConfig:
-                _avatarConfig ?? authProvider.currentUser!.avatarConfig,
-          );
-          await authProvider.updateProfile(syncedUser);
+        // Save animated avatar config to users collection (or remove if cleared)
+        try {
+          await FirestoreService().saveAvatarConfig(widget.userId, _avatarConfig);
+        } catch (e) {
+          debugPrint('Warning: Could not save avatar config: $e');
         }
 
         // Also update user basic profile with profile photo in Firestore directly
         try {
-          if (effectiveProfileUrl != null && effectiveProfileUrl.isNotEmpty) {
-            // Update via Firestore service directly for reliability
-            await FirestoreService()
-                .updateUserProfilePhoto(widget.userId, effectiveProfileUrl);
-
-            debugPrint(
-                'Profile photo saved to both collections: $effectiveProfileUrl');
-          }
+          await FirestoreService()
+              .updateUserProfilePhoto(widget.userId, effectiveProfileUrl);
+          debugPrint('Profile photo saved: $effectiveProfileUrl');
         } catch (e) {
           debugPrint('Error updating user profile photo: $e');
+        }
+
+        // Refresh AuthProvider immediately so all screens re-render with new profile data
+        try {
+          await authProvider.refreshUserData();
+        } catch (e) {
+          debugPrint('Warning: Could not refresh auth profile: $e');
         }
 
         // Save shop name when editing

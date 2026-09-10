@@ -82,13 +82,12 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   bool get _canCurrentUserReview {
-    final role = _currentViewerRole;
-    return role == UserRoles.customer || role == UserRoles.company;
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) return false;
+    return currentUser.uid != widget.userId;
   }
 
   bool get _isCurrentUserCompany => _currentViewerRole == UserRoles.company;
-
-  bool get _isCurrentUserCustomer => _currentViewerRole == UserRoles.customer;
 
   bool _isCompanyVerifiedForHiring(CompanyProfile? profile) {
     if (profile == null) return false;
@@ -1746,7 +1745,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
           const SizedBox(height: 12),
 
-          // â”€â”€ Location â”€â”€
+          // — Location —
           if (_profile!.city != null || _profile!.address != null)
             Row(
               children: [
@@ -1768,24 +1767,62 @@ class _ProfileScreenState extends State<ProfileScreen> {
           const SizedBox(height: 10),
 
           // â”€â”€ Star rating bar â”€â”€
-          Row(
-            children: [
-              RatingBarIndicator(
-                rating: _profile!.rating,
-                itemBuilder: (_, __) =>
-                    const Icon(Icons.star_rounded, color: Colors.amber),
-                itemCount: 5,
-                itemSize: 18,
+          InkWell(
+            onTap: () {
+              if (_canCurrentUserReview) {
+                _showAddReviewDialog();
+              }
+            },
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RatingBarIndicator(
+                    rating: _profile!.rating,
+                    itemBuilder: (_, __) =>
+                        const Icon(Icons.star_rounded, color: Colors.amber),
+                    itemCount: 5,
+                    itemSize: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${_profile!.rating.toStringAsFixed(1)} • ${_profile!.reviewCount} reviews',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: Colors.grey[700],
+                        fontWeight: FontWeight.w600),
+                  ),
+                  if (_canCurrentUserReview) ...[
+                    const SizedBox(width: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: Colors.amber.withValues(alpha: 0.15),
+                        borderRadius: BorderRadius.circular(12),
+                        border:
+                            Border.all(color: Colors.amber.shade700, width: 1),
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(Icons.star_rate_rounded,
+                              size: 14, color: Colors.amber),
+                          SizedBox(width: 2),
+                          Text('Rate 5 Stars',
+                              style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Color(0xFFE65100))),
+                        ],
+                      ),
+                    ),
+                  ],
+                ],
               ),
-              const SizedBox(width: 8),
-              Text(
-                '${_profile!.rating.toStringAsFixed(1)}  â€¢  ${_profile!.reviewCount} reviews',
-                style: TextStyle(
-                    fontSize: 12,
-                    color: Colors.grey[600],
-                    fontWeight: FontWeight.w500),
-              ),
-            ],
+            ),
           ),
 
           const SizedBox(height: 16),
@@ -1945,26 +1982,34 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   Widget _miniStat(String value, String label, IconData icon, Color color) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          padding: const EdgeInsets.all(8),
-          decoration: BoxDecoration(
-            color: color.withValues(alpha: 0.12),
-            shape: BoxShape.circle,
+    return GestureDetector(
+      onTap: () {
+        if (_canCurrentUserReview &&
+            (label == 'Rating' || label == 'Reviews')) {
+          _showAddReviewDialog();
+        }
+      },
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.12),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, size: 20, color: color),
           ),
-          child: Icon(icon, size: 20, color: color),
-        ),
-        const SizedBox(height: 4),
-        Text(value,
-            style: TextStyle(
-                fontSize: 15,
-                fontWeight: FontWeight.bold,
-                color: Colors.grey[800])),
-        Text(label,
-            style: const TextStyle(fontSize: 11, color: Color(0xFF9E9E9E))),
-      ],
+          const SizedBox(height: 4),
+          Text(value,
+              style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.grey[800])),
+          Text(label,
+              style: const TextStyle(fontSize: 11, color: Color(0xFF9E9E9E))),
+        ],
+      ),
     );
   }
 
@@ -2034,10 +2079,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           const SizedBox(width: 12),
           // Hire / Review button
-          if (_isCurrentUserCustomer && _canCurrentUserReview)
+          if (_canCurrentUserReview)
             Expanded(
               child: _gradientButton(
-                label: 'Review',
+                label: 'Rating',
                 icon: Icons.star_rate_rounded,
                 colors: const [Color(0xFFFF9800), Color(0xFFF4511E)],
                 onTap: _showAddReviewDialog,
@@ -3188,16 +3233,29 @@ class _ProfileScreenState extends State<ProfileScreen> {
           ),
           if (_reviews.isEmpty)
             Container(
-              padding: const EdgeInsets.symmetric(vertical: 32),
+              padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 16),
               alignment: Alignment.center,
               decoration: BoxDecoration(
                   color: Colors.white, borderRadius: BorderRadius.circular(16)),
               child: Column(
                 children: [
-                  Icon(Icons.rate_review, size: 48, color: Colors.grey[300]),
+                  Icon(Icons.rate_review, size: 44, color: Colors.grey[300]),
                   const SizedBox(height: 8),
                   Text('No reviews yet',
-                      style: TextStyle(color: Colors.grey[500], fontSize: 14)),
+                      style: TextStyle(color: Colors.grey[600], fontSize: 14, fontWeight: FontWeight.w500)),
+                  if (_canCurrentUserReview) ...[
+                    const SizedBox(height: 12),
+                    ElevatedButton.icon(
+                      onPressed: _showAddReviewDialog,
+                      icon: const Icon(Icons.star_rate_rounded, color: Colors.white, size: 18),
+                      label: const Text('Rating & Review',
+                          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFF9800),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             )

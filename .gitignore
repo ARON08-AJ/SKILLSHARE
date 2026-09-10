@@ -86,3 +86,5 @@ android/app/.cxx/
 android/.kotlin/
 android/build/
 build/
+
+node_modules/

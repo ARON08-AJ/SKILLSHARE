@@ -29,7 +29,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _profileVisible = true;
   bool _showEmail = false;
   bool _showPhone = false;
-  bool _enableShopDeliveryWorkflow = false;
+  bool _enableShopDeliveryWorkflow = true;
   bool _isSkilledPerson = false;
 
   @override
@@ -70,7 +70,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           _showEmail = settings['showEmail'] as bool? ?? false;
           _showPhone = settings['showPhone'] as bool? ?? false;
           _enableShopDeliveryWorkflow =
-              settings['enableShopDeliveryWorkflow'] as bool? ?? false;
+              settings['enableShopDeliveryWorkflow'] as bool? ?? true;
           _isLoading = false;
         });
       }, onError: (_) {

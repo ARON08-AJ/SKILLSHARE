@@ -5,12 +5,15 @@ import '../../providers/auth_provider.dart' as app_auth;
 import '../../providers/user_provider.dart';
 import '../../models/product_model.dart';
 import '../../models/order_model.dart';
+import '../../models/customer_profile.dart';
 import '../../services/firestore_service.dart';
 import '../../utils/web_image_loader.dart';
 import '../../utils/app_dialog.dart';
 import '../profile/settings_screen.dart';
 import '../shop/add_product_screen.dart';
 import '../shop/product_detail_screen.dart';
+import '../shop/order_tracking_screen.dart';
+import '../../utils/app_helpers.dart';
 
 /// My Shop Screen - For Skilled Persons Only
 /// Skilled persons can manage their online shop here
@@ -33,7 +36,7 @@ class _MyShopScreenState extends State<MyShopScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(() {
       if (mounted) setState(() {});
     });
@@ -99,16 +102,17 @@ class _MyShopScreenState extends State<MyShopScreen>
           unselectedLabelColor: Colors.white70,
           indicatorColor: Colors.white,
           labelStyle: const TextStyle(
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: FontWeight.w700,
           ),
           unselectedLabelStyle: const TextStyle(
-            fontSize: 12,
+            fontSize: 11,
             fontWeight: FontWeight.w500,
           ),
           tabs: const [
             Tab(text: 'Products', icon: Icon(Icons.inventory_2)),
             Tab(text: 'Orders', icon: Icon(Icons.list_alt)),
+            Tab(text: 'My Orders', icon: Icon(Icons.shopping_bag_outlined)),
             Tab(text: 'Analytics', icon: Icon(Icons.analytics)),
           ],
         ),
@@ -118,6 +122,7 @@ class _MyShopScreenState extends State<MyShopScreen>
         children: [
           _buildProductsTab(),
           _buildOrdersTab(),
+          _buildMyOrdersTab(),
           _buildAnalyticsTab(),
         ],
       ),
@@ -381,6 +386,7 @@ class _MyShopScreenState extends State<MyShopScreen>
             if (order.buyerName != null)
               Text('Buyer: ${order.buyerName}',
                   style: const TextStyle(color: Colors.grey, fontSize: 12)),
+            _buildOrderAddress(order),
             Text(
               usesDeliveryPartner
                   ? 'Fulfillment: Delivery Partner'
@@ -399,11 +405,40 @@ class _MyShopScreenState extends State<MyShopScreen>
                       onPressed: () => _updateOrderStatus(order, 'confirmed'),
                       child: const Text('Confirm Availability'),
                     ),
-                  if (order.status == 'confirmed' && !usesDeliveryPartner)
+                  if (order.status == 'confirmed' && !usesDeliveryPartner) ...[
+                    TextButton.icon(
+                      onPressed: () async {
+                        try {
+                          final sellerId =
+                              FirebaseAuth.instance.currentUser?.uid ??
+                                  order.sellerId;
+                          await _firestoreService.handoverOrderToDeliveryPartner(
+                            orderId: order.id,
+                            sellerId: sellerId,
+                          );
+                          if (mounted) {
+                            AppDialog.success(
+                                context, 'Assigned to delivery partner!');
+                          }
+                        } catch (e) {
+                          if (mounted) {
+                            AppDialog.error(context,
+                                'Failed to assign delivery',
+                                detail: e.toString());
+                          }
+                        }
+                      },
+                      icon: const Icon(Icons.delivery_dining, size: 16),
+                      label: const Text('Assign Delivery Partner'),
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFFE65100),
+                      ),
+                    ),
                     TextButton(
                       onPressed: () => _updateOrderStatus(order, 'shipped'),
                       child: const Text('Mark Shipped'),
                     ),
+                  ],
                   if (order.status == 'confirmed' && usesDeliveryPartner)
                     const Padding(
                       padding: EdgeInsets.only(right: 8),
@@ -435,6 +470,41 @@ class _MyShopScreenState extends State<MyShopScreen>
     );
   }
 
+  Widget _buildOrderAddress(OrderModel order) {
+    final directAddress =
+        order.deliveryAddress?.trim() ?? order.deliveryLocation?.trim();
+    if (directAddress != null && directAddress.isNotEmpty) {
+      return Text(
+        'Address: $directAddress',
+        style: const TextStyle(color: Colors.grey, fontSize: 12),
+      );
+    }
+
+    return FutureBuilder<CustomerProfile?>(
+      future: _firestoreService.getCustomerProfile(order.buyerId),
+      builder: (context, snapshot) {
+        final profile = snapshot.data;
+        final loc = profile?.location?.trim();
+        final city = profile?.city?.trim();
+        String display;
+        if (loc != null && loc.isNotEmpty) {
+          display = (city != null && city.isNotEmpty && !loc.contains(city))
+              ? '$loc, $city'
+              : loc;
+        } else if (city != null && city.isNotEmpty) {
+          display = city;
+        } else {
+          display = 'Not provided';
+        }
+
+        return Text(
+          'Address: $display',
+          style: const TextStyle(color: Colors.grey, fontSize: 12),
+        );
+      },
+    );
+  }
+
   Future<void> _updateOrderStatus(OrderModel order, String status) async {
     final userId = FirebaseAuth.instance.currentUser?.uid;
     if (userId == null) return;
@@ -452,6 +522,228 @@ class _MyShopScreenState extends State<MyShopScreen>
         AppDialog.error(context, 'Error updating order', detail: e.toString());
       }
     }
+  }
+
+  Widget _buildMyOrdersTab() {
+    final userId = FirebaseAuth.instance.currentUser?.uid;
+    if (userId == null) {
+      return const Center(child: Text('Please sign in'));
+    }
+    return StreamBuilder<List<OrderModel>>(
+      stream: _firestoreService.streamBuyerOrders(userId),
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return const Center(
+            child: CircularProgressIndicator(color: Color(0xFFE91E63)),
+          );
+        }
+        final orders = snapshot.data ?? [];
+        if (orders.isEmpty) {
+          return Center(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(Icons.shopping_bag_outlined,
+                    size: 80, color: Colors.grey[400]),
+                const SizedBox(height: 16),
+                Text(
+                  'No Orders Placed Yet',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.grey[700],
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Orders you place as a buyer will appear here',
+                  style: TextStyle(fontSize: 14, color: Colors.grey[500]),
+                ),
+              ],
+            ),
+          );
+        }
+        return ListView.builder(
+          padding: const EdgeInsets.all(14),
+          itemCount: orders.length,
+          itemBuilder: (context, index) {
+            final order = orders[index];
+            return _buildPurchasedOrderCard(order);
+          },
+        );
+      },
+    );
+  }
+
+  Color _purchasedOrderStatusColor(String s) {
+    switch (s) {
+      case 'delivered':
+        return Colors.green;
+      case 'out_for_delivery':
+        return Colors.orange;
+      case 'shipped':
+        return const Color(0xFF2196F3);
+      case 'confirmed':
+        return Colors.blue;
+      case 'cancelled':
+      case 'failed_delivery':
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
+  }
+
+  String _purchasedOrderStatusLabel(String s) {
+    switch (s) {
+      case 'out_for_delivery':
+        return 'Out for Delivery';
+      case 'failed_delivery':
+        return 'Failed';
+      default:
+        if (s.isEmpty) return 'Pending';
+        return s[0].toUpperCase() + s.substring(1);
+    }
+  }
+
+  Widget _buildPurchasedOrderCard(OrderModel order) {
+    final statusColor = _purchasedOrderStatusColor(order.status);
+    final statusLabel = _purchasedOrderStatusLabel(order.status);
+    final orderCode = order.id.length >= 8
+        ? order.id.substring(0, 8).toUpperCase()
+        : order.id.toUpperCase();
+    final address =
+        order.deliveryAddress?.trim() ?? order.deliveryLocation?.trim();
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 14),
+      elevation: 1.5,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => OrderTrackingScreen(order: order),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      order.productName,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: statusColor.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Text(
+                      statusLabel,
+                      style: TextStyle(
+                        color: statusColor,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Text(
+                'Order #$orderCode  •  ₹${order.totalPrice.toStringAsFixed(2)}  •  Qty: ${order.quantity}',
+                style: TextStyle(color: Colors.grey[700], fontSize: 12),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                AppHelpers.formatDateTime(order.createdAt),
+                style: TextStyle(color: Colors.grey[500], fontSize: 11),
+              ),
+              if (address != null && address.isNotEmpty) ...[
+                const SizedBox(height: 6),
+                Text(
+                  'Address: $address',
+                  style: TextStyle(color: Colors.grey[700], fontSize: 12),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+              if ((order.deliveryVerificationCode ?? '').trim().isNotEmpty &&
+                  order.status != 'delivered') ...[
+                const SizedBox(height: 10),
+                Container(
+                  width: double.infinity,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1565C0).withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: const Color(0xFF1565C0).withValues(alpha: 0.25),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.verified_outlined,
+                          size: 18, color: Color(0xFF1565C0)),
+                      const SizedBox(width: 8),
+                      Text(
+                        'Delivery Code: ${order.deliveryVerificationCode}',
+                        style: const TextStyle(
+                          color: Color(0xFF1565C0),
+                          fontSize: 13,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.6,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+              if (order.status != 'cancelled') ...[
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => OrderTrackingScreen(order: order),
+                      ),
+                    ),
+                    icon: const Icon(Icons.timeline, size: 16),
+                    label: const Text('Track Order'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFFE91E63),
+                      side: const BorderSide(color: Color(0xFFE91E63)),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      padding: const EdgeInsets.symmetric(vertical: 9),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildAnalyticsTab() {

@@ -63,6 +63,10 @@ class UserProvider with ChangeNotifier {
 
       await _firestoreService.updateSkilledUserProfile(profile);
       _skilledProfile = profile;
+      final idx = _verifiedUsers.indexWhere((u) => u.userId == profile.userId);
+      if (idx != -1) {
+        _verifiedUsers[idx] = profile;
+      }
 
       _isLoading = false;
       notifyListeners();

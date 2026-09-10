@@ -73,85 +73,106 @@ class _NotificationBellState extends State<NotificationBell> {
         .collection(AppConstants.usersCollection)
         .doc(widget.userId)
         .snapshots()
-        .listen((doc) {
-      if (!doc.exists) return;
-      final ts = doc.data()?['lastNotificationSeenAt'];
-      _lastSeen = ts != null ? (ts as Timestamp).toDate() : null;
-      _recount();
-    });
+        .listen(
+      (doc) {
+        if (!doc.exists) return;
+        final ts = doc.data()?['lastNotificationSeenAt'];
+        _lastSeen = ts != null ? (ts as Timestamp).toDate() : null;
+        _recount();
+      },
+      onError: (e) => debugPrint('NotificationBell userSub error: $e'),
+    );
 
     // Re-compute badge whenever the requests collection changes
     _requestSub = _firestore
         .collection(AppConstants.requestsCollection)
         .where('participants', arrayContains: widget.userId)
         .snapshots()
-        .listen((snap) {
-      _lastRequestSnap = snap;
-      _recount();
-    });
+        .listen(
+      (snap) {
+        _lastRequestSnap = snap;
+        _recount();
+      },
+      onError: (e) => debugPrint('NotificationBell requestSub error: $e'),
+    );
 
     _buyerOrderSub = _firestore
         .collection(AppConstants.ordersCollection)
         .where('buyerId', isEqualTo: widget.userId)
         .snapshots()
-        .listen((snap) {
-      _lastBuyerOrderSnap = snap;
-      _recount();
-    });
+        .listen(
+      (snap) {
+        _lastBuyerOrderSnap = snap;
+        _recount();
+      },
+      onError: (e) => debugPrint('NotificationBell buyerOrderSub error: $e'),
+    );
 
     _sellerOrderSub = _firestore
         .collection(AppConstants.ordersCollection)
         .where('sellerId', isEqualTo: widget.userId)
         .snapshots()
-        .listen((snap) {
-      _lastSellerOrderSnap = snap;
-      _recount();
-    });
+        .listen(
+      (snap) {
+        _lastSellerOrderSnap = snap;
+        _recount();
+      },
+      onError: (e) => debugPrint('NotificationBell sellerOrderSub error: $e'),
+    );
 
     _deliveryOrderSub = _firestore
         .collection(AppConstants.ordersCollection)
         .where('deliveryPartnerId', isEqualTo: widget.userId)
         .snapshots()
-        .listen((snap) {
-      _lastDeliveryOrderSnap = snap;
-      _recount();
-    });
+        .listen(
+      (snap) {
+        _lastDeliveryOrderSnap = snap;
+        _recount();
+      },
+      onError: (e) => debugPrint('NotificationBell deliveryOrderSub error: $e'),
+    );
 
     // Re-compute badge whenever unread chat count changes for this user
     _chatSub = _firestore
         .collection(AppConstants.chatsCollection)
         .where('participants', arrayContains: widget.userId)
         .snapshots()
-        .listen((snap) {
-      int total = 0;
-      for (final doc in snap.docs) {
-        final data = doc.data();
-        final unread = (data['unreadCount'] as Map?)?[widget.userId];
-        if (unread is int && unread > 0) {
-          // Only count chats where the last message arrived after we last viewed
-          if (_chatSeenAt == null) {
-            total += unread;
-          } else {
-            final lastMsgTime = data['lastMessageTime'];
-            if (lastMsgTime is Timestamp &&
-                lastMsgTime.toDate().isAfter(_chatSeenAt!)) {
+        .listen(
+      (snap) {
+        int total = 0;
+        for (final doc in snap.docs) {
+          final data = doc.data();
+          final unread = (data['unreadCount'] as Map?)?[widget.userId];
+          if (unread is int && unread > 0) {
+            // Only count chats where the last message arrived after we last viewed
+            if (_chatSeenAt == null) {
               total += unread;
+            } else {
+              final lastMsgTime = data['lastMessageTime'];
+              if (lastMsgTime is Timestamp &&
+                  lastMsgTime.toDate().isAfter(_chatSeenAt!)) {
+                total += unread;
+              }
             }
           }
         }
-      }
-      _chatUnread = total;
-      _recount();
-    });
+        _chatUnread = total;
+        _recount();
+      },
+      onError: (e) => debugPrint('NotificationBell chatSub error: $e'),
+    );
 
     _jobNotifSub = _firestore
         .collection('notifications')
         .where('toUserId', isEqualTo: widget.userId)
         .snapshots()
-        .listen((snap) {
-      _lastJobNotifSnap = snap;
-      _recount();
-    });
+        .listen(
+      (snap) {
+        _lastJobNotifSnap = snap;
+        _recount();
+      },
+      onError: (e) => debugPrint('NotificationBell jobNotifSub error: $e'),
+    );
   }
 
   void _recount() {
@@ -400,8 +421,7 @@ class _NotificationDropdownState extends State<_NotificationDropdown>
 
   @override
   Widget build(BuildContext context) {
-    final screenWidth = MediaQuery.of(context).size.width;
-    final cardWidth = screenWidth < 420 ? screenWidth - 24.0 : 340.0;
+    final topPadding = MediaQuery.of(context).padding.top;
 
     return Stack(
       children: [
@@ -413,21 +433,21 @@ class _NotificationDropdownState extends State<_NotificationDropdown>
           ),
         ),
 
-        // Dropdown card — follows the bell icon using the LayerLink
+        // Dropdown card — positioned safely within screen bounds
         Positioned(
-          width: cardWidth,
-          child: CompositedTransformFollower(
-            link: widget.layerLink,
-            showWhenUnlinked: false,
-            targetAnchor: Alignment.bottomRight,
-            followerAnchor: Alignment.topRight,
-            offset: const Offset(8, 4),
-            child: FadeTransition(
-              opacity: _fadeAnim,
-              child: ScaleTransition(
-                scale: _scaleAnim,
-                alignment: Alignment.topRight,
-                child: Material(
+          top: topPadding + kToolbarHeight + 4,
+          left: 12,
+          right: 12,
+          child: Align(
+            alignment: Alignment.topRight,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 360),
+              child: FadeTransition(
+                opacity: _fadeAnim,
+                child: ScaleTransition(
+                  scale: _scaleAnim,
+                  alignment: Alignment.topRight,
+                  child: Material(
                   color: Colors.transparent,
                   child: Container(
                     decoration: BoxDecoration(
@@ -509,7 +529,8 @@ class _NotificationDropdownState extends State<_NotificationDropdown>
             ),
           ),
         ),
-      ],
+      ),
+    ],
     );
   }
 

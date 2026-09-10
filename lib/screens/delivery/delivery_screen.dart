@@ -1,13 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/order_model.dart';
+import '../../models/user_model.dart';
+import '../../models/skilled_user_profile.dart';
 import '../../services/firestore_service.dart';
 import '../../utils/app_helpers.dart';
 import '../../utils/app_dialog.dart';
 import '../../utils/modern_pickers.dart';
 import '../chat/chat_detail_screen.dart';
-import '../shop/order_tracking_screen.dart';
 
 class DeliveryScreen extends StatefulWidget {
   const DeliveryScreen({super.key});
@@ -104,6 +106,25 @@ class _MyDeliveriesTab extends StatelessWidget {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
+        if (snapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, size: 48, color: Colors.orange),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Could not load deliveries: ${snapshot.error}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey[700], fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
         final orders = snapshot.data ?? [];
         if (orders.isEmpty) {
           return const _EmptyState(
@@ -145,6 +166,25 @@ class _AvailableDeliveriesTab extends StatelessWidget {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
+        if (snapshot.hasError) {
+          return Center(
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.error_outline, size: 48, color: Colors.orange),
+                  const SizedBox(height: 12),
+                  Text(
+                    'Could not load available deliveries: ${snapshot.error}',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey[700], fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+          );
+        }
         final orders = snapshot.data ?? [];
         if (orders.isEmpty) {
           return const _EmptyState(
@@ -170,7 +210,7 @@ class _AvailableDeliveriesTab extends StatelessWidget {
 
 // ─── Delivery Card ─────────────────────────────────────────────────────────────
 
-class _DeliveryCard extends StatelessWidget {
+class _DeliveryCard extends StatefulWidget {
   const _DeliveryCard({
     required this.order,
     required this.partnerId,
@@ -182,6 +222,39 @@ class _DeliveryCard extends StatelessWidget {
   final String partnerId;
   final String partnerName;
   final bool isAssigned;
+
+  @override
+  State<_DeliveryCard> createState() => _DeliveryCardState();
+}
+
+class _DeliveryCardState extends State<_DeliveryCard> {
+  UserModel? _sellerUser;
+  SkilledUserProfile? _sellerProfile;
+  UserModel? _buyerUser;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfiles();
+  }
+
+  Future<void> _loadProfiles() async {
+    try {
+      final fs = FirestoreService();
+      final futures = await Future.wait([
+        fs.getUserById(widget.order.sellerId),
+        fs.getSkilledUserProfile(widget.order.sellerId),
+        fs.getUserById(widget.order.buyerId),
+      ]);
+      if (mounted) {
+        setState(() {
+          _sellerUser = futures[0] as UserModel?;
+          _sellerProfile = futures[1] as SkilledUserProfile?;
+          _buyerUser = futures[2] as UserModel?;
+        });
+      }
+    } catch (_) {}
+  }
 
   Color _statusColor(String status) {
     switch (status) {
@@ -213,44 +286,88 @@ class _DeliveryCard extends StatelessWidget {
     }
   }
 
+  Future<void> _callPhone(String? phone) async {
+    final clean = (phone ?? '').replaceAll(RegExp(r'[^\d+]'), '');
+    if (clean.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Phone number not provided.')),
+      );
+      return;
+    }
+    final uri = Uri.parse('tel:$clean');
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not open phone dialer: $e')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final order = widget.order;
+    final isAssigned = widget.isAssigned;
+    final partnerId = widget.partnerId;
+
+    final sellerName = _sellerUser?.name.trim().isNotEmpty == true
+        ? _sellerUser!.name.trim()
+        : 'Skilled Seller';
+    final sellerPhone = _sellerUser?.phone?.trim() ?? '';
+    final sellerAddress = _sellerProfile?.address?.trim().isNotEmpty == true
+        ? _sellerProfile!.address!.trim()
+        : (_sellerProfile?.city?.trim().isNotEmpty == true
+            ? _sellerProfile!.city!.trim()
+            : 'Seller Studio / Shop Location');
+
+    final buyerName = order.buyerName?.trim().isNotEmpty == true
+        ? order.buyerName!.trim()
+        : (_buyerUser?.name.trim().isNotEmpty == true
+            ? _buyerUser!.name.trim()
+            : 'Customer');
+    final buyerPhone = _buyerUser?.phone?.trim() ?? '';
+    final buyerAddress = order.deliveryAddress?.trim().isNotEmpty == true
+        ? order.deliveryAddress!.trim()
+        : (order.deliveryLocation?.trim().isNotEmpty == true
+            ? order.deliveryLocation!.trim()
+            : 'Delivery address specified in order');
+
     return Card(
-      margin: const EdgeInsets.only(bottom: 14),
-      elevation: 2,
+      margin: const EdgeInsets.only(bottom: 16),
+      elevation: 3,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header row
+            // Header row: ID & Status
             Row(
               children: [
                 Container(
-                  padding: const EdgeInsets.all(10),
+                  padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFF6B35).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(12),
+                    borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(Icons.local_shipping,
+                  child: const Icon(Icons.local_shipping_rounded,
                       color: Color(0xFFFF6B35), size: 22),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(width: 10),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        order.productName,
+                        'Order #${order.id.length > 8 ? order.id.substring(0, 8).toUpperCase() : order.id.toUpperCase()}',
                         style: const TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 15),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
+                            fontWeight: FontWeight.bold, fontSize: 14),
                       ),
                       const SizedBox(height: 2),
                       Text(
-                        'Order #${order.id.substring(0, 8).toUpperCase()}',
+                        AppHelpers.formatDateTime(order.createdAt),
                         style: TextStyle(color: Colors.grey[600], fontSize: 12),
                       ),
                     ],
@@ -274,32 +391,286 @@ class _DeliveryCard extends StatelessWidget {
                 ),
               ],
             ),
+            const SizedBox(height: 14),
+
+            // 1. Product Details Box
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF9FAFB),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Row(
+                children: [
+                  if (order.productImage != null &&
+                      order.productImage!.trim().isNotEmpty)
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Image.network(
+                        order.productImage!,
+                        width: 54,
+                        height: 54,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => Container(
+                          width: 54,
+                          height: 54,
+                          color: Colors.grey[200],
+                          child: const Icon(Icons.inventory_2_outlined,
+                              color: Colors.grey),
+                        ),
+                      ),
+                    )
+                  else
+                    Container(
+                      width: 54,
+                      height: 54,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFF6B35).withValues(alpha: 0.1),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Icon(Icons.inventory_2_rounded,
+                          color: Color(0xFFFF6B35)),
+                    ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          order.productName,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 15),
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.grey[200],
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                'Qty: ${order.quantity}',
+                                style: TextStyle(
+                                  color: Colors.grey[800],
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '₹${order.totalPrice.toStringAsFixed(2)}',
+                              style: const TextStyle(
+                                color: Color(0xFF2E7D32),
+                                fontSize: 14,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 12),
-            // Details
-            _InfoRow(Icons.person_outline, 'Buyer',
-                order.buyerName ?? order.buyerId),
-            if ((order.deliveryAddress ?? '').trim().isNotEmpty)
-              _InfoRow(Icons.home_outlined, 'Address', order.deliveryAddress!),
-            if ((order.deliveryLocation ?? '').trim().isNotEmpty)
-              _InfoRow(Icons.location_on_outlined, 'Location',
-                  order.deliveryLocation!),
-            _InfoRow(Icons.payments_outlined, 'Amount',
-                '₹${order.totalPrice.toStringAsFixed(2)}'),
-            _InfoRow(Icons.calendar_today_outlined, 'Ordered',
-                AppHelpers.formatDateTime(order.createdAt)),
-            if (order.estimatedDelivery != null)
+
+            // 2. Pickup Location (Seller / Skilled Person)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFF8E1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFFFE082)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.storefront_rounded,
+                              size: 18, color: Color(0xFFE65100)),
+                          SizedBox(width: 6),
+                          Text(
+                            'Pickup Location (Seller)',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: Color(0xFFE65100),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (sellerPhone.isNotEmpty)
+                        InkWell(
+                          onTap: () => _callPhone(sellerPhone),
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border:
+                                  Border.all(color: const Color(0xFFFFB74D)),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.phone,
+                                    size: 13, color: Color(0xFFE65100)),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Call Seller',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFE65100),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Seller: $sellerName',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        color: Color(0xFF263238)),
+                  ),
+                  if (sellerPhone.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'Phone: $sellerPhone',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[800]),
+                    ),
+                  ],
+                  const SizedBox(height: 2),
+                  Text(
+                    'Address: $sellerAddress',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[800]),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 10),
+
+            // 3. Deliver To (Customer / Buyer)
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFE3F2FD),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFBBDEFB)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Row(
+                        children: [
+                          Icon(Icons.location_on_rounded,
+                              size: 18, color: Color(0xFF1565C0)),
+                          SizedBox(width: 6),
+                          Text(
+                            'Deliver To (Customer)',
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 13,
+                              color: Color(0xFF1565C0),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (buyerPhone.isNotEmpty)
+                        InkWell(
+                          onTap: () => _callPhone(buyerPhone),
+                          borderRadius: BorderRadius.circular(16),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 4),
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(16),
+                              border:
+                                  Border.all(color: const Color(0xFF90CAF9)),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.phone,
+                                    size: 13, color: Color(0xFF1565C0)),
+                                SizedBox(width: 4),
+                                Text(
+                                  'Call Customer',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFF1565C0),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                    'Customer: $buyerName',
+                    style: const TextStyle(
+                        fontWeight: FontWeight.w600,
+                        fontSize: 13,
+                        color: Color(0xFF263238)),
+                  ),
+                  if (buyerPhone.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'Phone: $buyerPhone',
+                      style: TextStyle(fontSize: 12, color: Colors.grey[800]),
+                    ),
+                  ],
+                  const SizedBox(height: 2),
+                  Text(
+                    'Address: $buyerAddress',
+                    style: TextStyle(fontSize: 12, color: Colors.grey[800]),
+                  ),
+                ],
+              ),
+            ),
+
+            if (order.estimatedDelivery != null) ...[
+              const SizedBox(height: 8),
               _InfoRow(
                 Icons.schedule,
                 'Est. Delivery',
                 AppHelpers.formatDateTime(order.estimatedDelivery!),
               ),
+            ],
+
             if ((order.deliveryVerificationCode ?? '').trim().isNotEmpty &&
                 isAssigned &&
                 order.status == 'out_for_delivery')
               const Padding(
-                padding: EdgeInsets.only(top: 4),
+                padding: EdgeInsets.only(top: 8),
                 child: Text(
-                  'Ask the customer for their delivery code before marking this as delivered.',
+                  'Ask the customer for their delivery verification code before marking this as delivered.',
                   style: TextStyle(
                     fontSize: 12,
                     color: Color(0xFF1565C0),
@@ -307,12 +678,18 @@ class _DeliveryCard extends StatelessWidget {
                   ),
                 ),
               ),
+
             const SizedBox(height: 14),
-            // Action buttons
+
+            // Action Buttons
             if (!isAssigned && order.status == 'confirmed')
               _AcceptButton(
-                  order: order, partnerId: partnerId, partnerName: partnerName),
-            if (isAssigned && order.status == 'out_for_delivery')
+                order: order,
+                partnerId: partnerId,
+                partnerName: widget.partnerName,
+              ),
+
+            if (isAssigned && order.status == 'out_for_delivery') ...[
               Row(
                 children: [
                   Expanded(
@@ -336,51 +713,72 @@ class _DeliveryCard extends StatelessWidget {
                   ),
                 ],
               ),
-            if (isAssigned && order.sellerId.trim().isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton.icon(
-                    onPressed: () => _openSellerChat(context, order, partnerId),
-                    icon: const Icon(Icons.chat_bubble_outline, size: 18),
-                    label: const Text('Chat with Skilled Person'),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF7B1FA2),
-                      side: const BorderSide(color: Color(0xFF7B1FA2)),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                    ),
-                  ),
-                ),
-              ),
-            if (isAssigned && order.status == 'out_for_delivery')
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
+              const SizedBox(height: 8),
+              Center(
                 child: TextButton.icon(
                   onPressed: () =>
                       _updateEstimatedDelivery(context, order, partnerId),
                   icon: const Icon(Icons.schedule, size: 18),
-                  label: const Text('Update ETA'),
+                  label: const Text('Update Delivery ETA'),
                   style: TextButton.styleFrom(
                       foregroundColor: const Color(0xFF1976D2)),
                 ),
               ),
-            if (order.status == 'delivered' ||
-                order.status == 'out_for_delivery')
-              TextButton.icon(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                      builder: (_) => OrderTrackingScreen(order: order)),
-                ),
-                icon: const Icon(Icons.timeline, size: 18),
-                label: const Text('View Timeline'),
-                style: TextButton.styleFrom(
-                    foregroundColor: const Color(0xFFFF6B35)),
+            ],
+
+            // Communication Buttons (Chat with Seller & Chat with Customer)
+            if (isAssigned) ...[
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  if (order.sellerId.trim().isNotEmpty)
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            _openSellerChat(context, order, partnerId),
+                        icon: const Icon(Icons.chat_bubble_outline, size: 16),
+                        label: const Text(
+                          'Chat Seller',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFFE65100),
+                          side: const BorderSide(color: Color(0xFFE65100)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
+                    ),
+                  if (order.sellerId.trim().isNotEmpty &&
+                      order.buyerId.trim().isNotEmpty)
+                    const SizedBox(width: 10),
+                  if (order.buyerId.trim().isNotEmpty)
+                    Expanded(
+                      child: OutlinedButton.icon(
+                        onPressed: () =>
+                            _openBuyerChat(context, order, partnerId),
+                        icon: const Icon(Icons.chat_outlined, size: 16),
+                        label: const Text(
+                          'Chat Customer',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF1565C0),
+                          side: const BorderSide(color: Color(0xFF1565C0)),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                          padding: const EdgeInsets.symmetric(vertical: 10),
+                        ),
+                      ),
+                    ),
+                ],
               ),
+            ],
           ],
         ),
       ),
@@ -398,7 +796,7 @@ class _DeliveryCard extends StatelessWidget {
       final chatId = await service.ensureDeliverySellerChat(
         orderId: order.id,
         deliveryPartnerId: partnerId,
-        deliveryPartnerName: partnerName,
+        deliveryPartnerName: widget.partnerName,
       );
       if (!context.mounted) return;
       Navigator.push(
@@ -409,7 +807,7 @@ class _DeliveryCard extends StatelessWidget {
             otherUserId: order.sellerId,
             otherUserName: seller?.name.trim().isNotEmpty == true
                 ? seller!.name
-                : 'Skilled Person',
+                : 'Skilled Seller',
             otherUserPhoto: seller?.profilePhoto,
           ),
         ),
@@ -418,7 +816,47 @@ class _DeliveryCard extends StatelessWidget {
       if (context.mounted) {
         AppDialog.error(
           context,
-          'Unable to open chat',
+          'Unable to open chat with seller',
+          detail: e.toString(),
+        );
+      }
+    }
+  }
+
+  Future<void> _openBuyerChat(
+    BuildContext context,
+    OrderModel order,
+    String partnerId,
+  ) async {
+    try {
+      final service = FirestoreService();
+      final buyer = await service.getUserById(order.buyerId);
+      final chatId = await service.ensureDeliveryBuyerChat(
+        orderId: order.id,
+        deliveryPartnerId: partnerId,
+        deliveryPartnerName: widget.partnerName,
+      );
+      if (!context.mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatDetailScreen(
+            chatId: chatId,
+            otherUserId: order.buyerId,
+            otherUserName: order.buyerName?.trim().isNotEmpty == true
+                ? order.buyerName!
+                : (buyer?.name.trim().isNotEmpty == true
+                    ? buyer!.name
+                    : 'Customer'),
+            otherUserPhoto: buyer?.profilePhoto,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (context.mounted) {
+        AppDialog.error(
+          context,
+          'Unable to open chat with customer',
           detail: e.toString(),
         );
       }

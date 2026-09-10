@@ -8,6 +8,7 @@ import '../main_navigation.dart';
 import '../profile/skilled_user_setup_screen.dart';
 import '../profile/customer_setup_screen.dart';
 import '../profile/company_setup_screen.dart';
+import '../../utils/app_dialog.dart';
 import 'login_screen.dart';
 
 class SignUpScreen extends StatefulWidget {
@@ -59,6 +60,7 @@ class _SignUpScreenState extends State<SignUpScreen>
     _confirmPasswordFocusNode = FocusNode();
     _passwordFocusNode.addListener(() => setState(() {}));
     _confirmPasswordFocusNode.addListener(() => setState(() {}));
+    _emailController.addListener(() => setState(() {}));
     _passwordController.addListener(() => setState(() {}));
     _confirmPasswordController.addListener(() => setState(() {}));
   }
@@ -87,10 +89,11 @@ class _SignUpScreenState extends State<SignUpScreen>
           begin: const Offset(0, 0.06),
           end: Offset.zero,
         ).animate(
-            CurvedAnimation(parent: animation, curve: Curves.easeOutCubic));
-        return FadeTransition(
-          opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-          child: SlideTransition(position: slide, child: child),
+          CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+        );
+        return SlideTransition(
+          position: slide,
+          child: FadeTransition(opacity: animation, child: child),
         );
       },
     );
@@ -98,180 +101,22 @@ class _SignUpScreenState extends State<SignUpScreen>
 
   // ── Error dialog ─────────────────────────────────────────────────────────────
   void _showErrorDialog(String message) {
-    showDialog<void>(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (ctx) => TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0.8, end: 1.0),
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOutBack,
-        builder: (_, scale, child) =>
-            Transform.scale(scale: scale, child: child),
-        child: AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-          contentPadding: EdgeInsets.zero,
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 20),
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFFE53935), Color(0xFFFF6F61)],
-                    begin: Alignment.centerLeft,
-                    end: Alignment.centerRight,
-                  ),
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(20),
-                    topRight: Radius.circular(20),
-                  ),
-                ),
-                child: const Column(
-                  children: [
-                    Icon(Icons.error_outline_rounded,
-                        color: Colors.white, size: 40),
-                    SizedBox(height: 6),
-                    Text('Sign Up Failed',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 17,
-                          fontWeight: FontWeight.bold,
-                        )),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-                child: Text(
-                  message,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                      fontSize: 14.5, color: Color(0xFF333333), height: 1.5),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6A11CB),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(vertical: 13),
-                    ),
-                    onPressed: () => Navigator.of(ctx).pop(),
-                    child: const Text('Try Again',
-                        style: TextStyle(fontWeight: FontWeight.bold)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    AppDialog.error(
+      context,
+      message,
+      title: 'Sign Up Failed',
+      buttonText: 'Try Again',
     );
   }
 
   // ── Success dialog ───────────────────────────────────────────────────────────
   Future<void> _showSuccessDialog(String name, VoidCallback onContinue) async {
-    await showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      barrierColor: Colors.black54,
-      builder: (ctx) => TweenAnimationBuilder<double>(
-        tween: Tween(begin: 0.7, end: 1.0),
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeOutBack,
-        builder: (_, scale, child) =>
-            Transform.scale(scale: scale, child: child),
-        child: AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
-          contentPadding: EdgeInsets.zero,
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 28),
-                decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    colors: [Color(0xFF6A11CB), Color(0xFF2575FC)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
-                  ),
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(24),
-                    topRight: Radius.circular(24),
-                  ),
-                ),
-                child: Column(
-                  children: [
-                    Container(
-                      width: 64,
-                      height: 64,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withValues(alpha: 0.2),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(Icons.check_rounded,
-                          color: Colors.white, size: 38),
-                    ),
-                    const SizedBox(height: 12),
-                    const Text('Welcome Aboard!',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.bold,
-                        )),
-                    const SizedBox(height: 4),
-                    Text('Account created for $name',
-                        style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.85),
-                          fontSize: 13,
-                        )),
-                  ],
-                ),
-              ),
-              const Padding(
-                padding: EdgeInsets.fromLTRB(24, 20, 24, 8),
-                child: Text(
-                  "Your account is ready. Let's set up your profile!",
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 14.5, color: Color(0xFF555555), height: 1.5),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF6A11CB),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                      padding: const EdgeInsets.symmetric(vertical: 14),
-                    ),
-                    onPressed: () {
-                      Navigator.of(ctx).pop();
-                      onContinue();
-                    },
-                    child: const Text('Continue to Setup',
-                        style: TextStyle(
-                            fontWeight: FontWeight.bold, fontSize: 15)),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
+    await AppDialog.success(
+      context,
+      "Your account is ready. Let's set up your profile!",
+      title: 'Welcome Aboard!',
+      buttonText: 'Continue to Setup',
+      onDismiss: onContinue,
     );
   }
 
@@ -496,6 +341,14 @@ class _SignUpScreenState extends State<SignUpScreen>
                                         hintStyle: TextStyle(
                                             color: Colors.grey[400],
                                             fontSize: 14),
+                                        suffixText: _emailController.text.isNotEmpty && !_emailController.text.contains('@')
+                                            ? '@gmail.com'
+                                            : null,
+                                        suffixStyle: TextStyle(
+                                          color: Colors.grey[500],
+                                          fontSize: 14,
+                                          fontWeight: FontWeight.w500,
+                                        ),
                                       ),
                                       validator: (v) =>
                                           (v == null || v.trim().isEmpty)
@@ -519,10 +372,11 @@ class _SignUpScreenState extends State<SignUpScreen>
                                     // Role
                                     DropdownButtonFormField<String>(
                                       value: _selectedRole,
+                                      isExpanded: true,
                                       style: AppFonts.lora(
-                                      fontSize: 15,
-                                      fontWeight: FontWeight.w500,
-                                      color: const Color(0xFF1A1A2E),
+                                        fontSize: 15,
+                                        fontWeight: FontWeight.w500,
+                                        color: const Color(0xFF1A1A2E),
                                       ),
                                       decoration: _inputDecoration(
                                         label: 'I am a',
@@ -530,86 +384,76 @@ class _SignUpScreenState extends State<SignUpScreen>
                                       ),
                                       items: const [
                                         DropdownMenuItem(
-                                            value: AppConstants.roleCustomer,
-                                            child: Row(
-                                              children: [
-                                                Icon(Icons.person_outline,
-                                                    size: 20,
-                                                    color: Color(0xFF6A11CB)),
-                                                SizedBox(width: 10),
-                                          Flexible(
-                                            child: Text('Customer',
-                                              overflow:
-                                                TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                fontSize: 15,
-                                                fontFamily:
-                                                  'SourceSerif4')),
+                                          value: AppConstants.roleCustomer,
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.person_outline,
+                                                  size: 20,
+                                                  color: Color(0xFF6A11CB)),
+                                              SizedBox(width: 10),
+                                              Text('Customer',
+                                                  style: TextStyle(
+                                                      fontSize: 15,
+                                                      fontFamily:
+                                                          'SourceSerif4')),
+                                            ],
                                           ),
-                                              ],
-                                            )),
+                                        ),
                                         DropdownMenuItem(
-                                            value: AppConstants.roleSkilledUser,
-                                            child: Row(
-                                              children: [
-                                                Icon(Icons.engineering,
-                                                    size: 20,
-                                                    color: Color(0xFF6A11CB)),
-                                                SizedBox(width: 10),
-                                          Flexible(
-                                            child: Text(
-                                              'Skilled Professional',
-                                              overflow:
-                                                TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                fontSize: 15,
-                                                fontFamily:
-                                                  'SourceSerif4')),
+                                          value: AppConstants.roleSkilledUser,
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.engineering,
+                                                  size: 20,
+                                                  color: Color(0xFF6A11CB)),
+                                              SizedBox(width: 10),
+                                              Text('Skilled Professional',
+                                                  style: TextStyle(
+                                                      fontSize: 15,
+                                                      fontFamily:
+                                                          'SourceSerif4')),
+                                            ],
                                           ),
-                                              ],
-                                            )),
+                                        ),
                                         DropdownMenuItem(
-                                            value: AppConstants.roleCompany,
-                                            child: Row(
-                                              children: [
-                                                Icon(Icons.business,
-                                                    size: 20,
-                                                    color: Color(0xFF6A11CB)),
-                                                SizedBox(width: 10),
-                                          Flexible(
-                                            child: Text('Company',
-                                              overflow:
-                                                TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                fontSize: 15,
-                                                fontFamily:
-                                                  'SourceSerif4')),
+                                          value: AppConstants.roleCompany,
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(Icons.business,
+                                                  size: 20,
+                                                  color: Color(0xFF6A11CB)),
+                                              SizedBox(width: 10),
+                                              Text('Company',
+                                                  style: TextStyle(
+                                                      fontSize: 15,
+                                                      fontFamily:
+                                                          'SourceSerif4')),
+                                            ],
                                           ),
-                                              ],
-                                            )),
+                                        ),
                                         DropdownMenuItem(
-                                            value: AppConstants
-                                                .roleDeliveryPartner,
-                                            child: Row(
-                                              children: [
-                                                Icon(
-                                                    Icons
-                                                        .local_shipping_outlined,
-                                                    size: 20,
-                                                    color: Color(0xFF6A11CB)),
-                                                SizedBox(width: 10),
-                                          Flexible(
-                                            child: Text(
-                                              'Delivery Partner',
-                                              overflow:
-                                                TextOverflow.ellipsis,
-                                              style: TextStyle(
-                                                fontSize: 15,
-                                                fontFamily:
-                                                  'SourceSerif4')),
+                                          value: AppConstants
+                                              .roleDeliveryPartner,
+                                          child: Row(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              Icon(
+                                                  Icons
+                                                      .local_shipping_outlined,
+                                                  size: 20,
+                                                  color: Color(0xFF6A11CB)),
+                                              SizedBox(width: 10),
+                                              Text('Delivery Partner',
+                                                  style: TextStyle(
+                                                      fontSize: 15,
+                                                      fontFamily:
+                                                          'SourceSerif4')),
+                                            ],
                                           ),
-                                              ],
-                                            )),
+                                        ),
                                       ],
                                       onChanged: (v) =>
                                           setState(() => _selectedRole = v!),

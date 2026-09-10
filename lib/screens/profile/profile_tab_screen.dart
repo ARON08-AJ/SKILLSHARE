@@ -691,7 +691,6 @@ class _ProfileTabScreenState extends State<ProfileTabScreen>
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Container(
                   decoration: BoxDecoration(
-                    color: Colors.white,
                     borderRadius: BorderRadius.circular(20),
                     boxShadow: [
                       BoxShadow(
@@ -701,8 +700,12 @@ class _ProfileTabScreenState extends State<ProfileTabScreen>
                       ),
                     ],
                   ),
-                  child: Column(
-                    children: [
+                  child: Material(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(20),
+                    clipBehavior: Clip.antiAlias,
+                    child: Column(
+                      children: [
                       // My Portfolio — skilled persons only
                       if (_currentUser?.role == UserRoles.skilledPerson) ...[
                         _buildMenuTile(
@@ -782,6 +785,7 @@ class _ProfileTabScreenState extends State<ProfileTabScreen>
                   ),
                 ),
               ),
+            ),
 
               const SizedBox(height: 20),
 

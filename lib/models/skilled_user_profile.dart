@@ -156,7 +156,7 @@ class SkilledUserProfile {
       'rejectionReason': rejectionReason,
       'companyEndorsementCount': companyEndorsementCount,
       if (bannerData != null) 'bannerData': bannerData,
-      if (avatarConfig != null) 'avatarConfig': avatarConfig,
+      'avatarConfig': avatarConfig,
       'createdAt': Timestamp.fromDate(createdAt),
       'updatedAt': Timestamp.fromDate(updatedAt),
     };

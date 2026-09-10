@@ -8,8 +8,11 @@ import '../../utils/app_helpers.dart';
 import '../../utils/app_theme.dart';
 import '../../widgets/product_card.dart';
 import '../../widgets/universal_avatar.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import '../profile/profile_screen.dart';
 import 'product_detail_screen.dart';
+import 'cart_screen.dart';
+import '../../models/cart_item_model.dart';
 
 class ShopStorefrontScreen extends StatefulWidget {
   const ShopStorefrontScreen({
@@ -156,6 +159,62 @@ class _ShopStorefrontScreenState extends State<ShopStorefrontScreen> {
       appBar: AppBar(
         title: Text(shopName, style: const TextStyle(color: Colors.white)),
         iconTheme: const IconThemeData(color: Colors.white),
+        actions: [
+          Builder(
+            builder: (context) {
+              final uid = FirebaseAuth.instance.currentUser?.uid;
+              if (uid == null) return const SizedBox.shrink();
+              return StreamBuilder<List<CartItemModel>>(
+                stream: _firestoreService.streamCartItems(uid),
+                builder: (context, snapshot) {
+                  final count = snapshot.data?.fold<int>(
+                          0, (sum, item) => sum + item.quantity) ??
+                      0;
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      IconButton(
+                        icon: const Icon(Icons.shopping_cart_outlined,
+                            color: Colors.white),
+                        tooltip: 'View Cart',
+                        onPressed: () {
+                          Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (_) => const CartScreen()),
+                          );
+                        },
+                      ),
+                      if (count > 0)
+                        Positioned(
+                          right: 4,
+                          top: 6,
+                          child: Container(
+                            padding: const EdgeInsets.all(4),
+                            decoration: const BoxDecoration(
+                              color: Colors.amber,
+                              shape: BoxShape.circle,
+                            ),
+                            constraints: const BoxConstraints(
+                                minWidth: 16, minHeight: 16),
+                            child: Text(
+                              '$count',
+                              style: const TextStyle(
+                                color: Colors.black,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
+                              textAlign: TextAlign.center,
+                            ),
+                          ),
+                        ),
+                    ],
+                  );
+                },
+              );
+            },
+          ),
+        ],
         flexibleSpace: Container(
           decoration: const BoxDecoration(
             gradient: LinearGradient(

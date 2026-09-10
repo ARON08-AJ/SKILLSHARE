@@ -529,7 +529,6 @@ class FirestoreService {
       final existingChat = await chatRef.get();
       if (existingChat.exists) {
         await chatRef.set({
-          'participants': participants,
           'participantDetails': {
             userAId: _participantDetailsFromUser(userA),
             userBId: _participantDetailsFromUser(userB),
@@ -607,6 +606,88 @@ class FirestoreService {
       userB: seller,
       userAId: deliveryPartnerId,
       userBId: sellerId,
+    );
+
+    final productName =
+        (orderData['productName'] as String?)?.trim() ?? 'this delivery';
+    final chatRef =
+        _firestore.collection(AppConstants.chatsCollection).doc(chatId);
+    final chatSnap = await chatRef.get();
+    final currentLastMessage =
+        (chatSnap.data()?['lastMessage'] as String?)?.trim() ?? '';
+    final updateData = <String, dynamic>{
+      'deliveryOrderIds': FieldValue.arrayUnion([orderId]),
+      'chatCategory': 'delivery',
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+    if (currentLastMessage.isEmpty ||
+        currentLastMessage.startsWith('Delivery chat opened for ')) {
+      updateData.addAll({
+        'lastMessage': 'Delivery chat opened for $productName',
+        'lastMessageType': 'delivery_update',
+        'lastMessageTime': FieldValue.serverTimestamp(),
+      });
+    }
+    await chatRef.set(updateData, SetOptions(merge: true));
+
+    return chatId;
+  }
+
+  Future<String> ensureDeliveryBuyerChat({
+    required String orderId,
+    required String deliveryPartnerId,
+    required String deliveryPartnerName,
+  }) async {
+    final orderRef =
+        _firestore.collection(AppConstants.ordersCollection).doc(orderId);
+    final orderSnap = await orderRef.get();
+    if (!orderSnap.exists) {
+      throw Exception('Order not found.');
+    }
+
+    final data = orderSnap.data() ?? <String, dynamic>{};
+    final assignedId = (data['deliveryPartnerId'] as String?)?.trim() ?? '';
+    if (assignedId != deliveryPartnerId) {
+      throw Exception('You are not assigned to this delivery.');
+    }
+    return _ensureDeliveryBuyerChatFromOrderData(
+      orderId: orderId,
+      orderData: data,
+      deliveryPartnerId: deliveryPartnerId,
+      deliveryPartnerName: deliveryPartnerName,
+    );
+  }
+
+  Future<String> _ensureDeliveryBuyerChatFromOrderData({
+    required String orderId,
+    required Map<String, dynamic> orderData,
+    required String deliveryPartnerId,
+    required String deliveryPartnerName,
+  }) async {
+    final buyerId = (orderData['buyerId'] as String?)?.trim() ?? '';
+    if (buyerId.isEmpty) {
+      throw Exception('Customer details are missing for this delivery.');
+    }
+
+    final now = DateTime.now();
+    final buyer = await getUserById(buyerId);
+    final deliveryPartner = await getUserById(deliveryPartnerId) ??
+        UserModel(
+          uid: deliveryPartnerId,
+          email: '',
+          name: deliveryPartnerName.trim().isEmpty
+              ? 'Delivery Partner'
+              : deliveryPartnerName.trim(),
+          role: UserRoles.deliveryPartner,
+          createdAt: now,
+          updatedAt: now,
+        );
+
+    final chatId = await _ensureDirectChatBetweenUsers(
+      userA: deliveryPartner,
+      userB: buyer,
+      userAId: deliveryPartnerId,
+      userBId: buyerId,
     );
 
     final productName =
@@ -842,13 +923,13 @@ class FirestoreService {
   }
 
   // Update user profile photo in users collection
-  Future<void> updateUserProfilePhoto(String userId, String photoUrl) async {
+  Future<void> updateUserProfilePhoto(String userId, String? photoUrl) async {
     try {
       await _firestore
           .collection(AppConstants.usersCollection)
           .doc(userId)
           .update({
-        'profilePhoto': photoUrl,
+        'profilePhoto': (photoUrl != null && photoUrl.isNotEmpty) ? photoUrl : null,
         'updatedAt': FieldValue.serverTimestamp(),
       });
       debugPrint('User profile photo updated successfully');
@@ -2518,7 +2599,7 @@ class FirestoreService {
     }
 
     final profileWorkflowEnabled =
-        (userSettings['enableShopDeliveryWorkflow'] as bool?) ?? false;
+        (userSettings['enableShopDeliveryWorkflow'] as bool?) ?? true;
     final allowDeliveryIfAvailable =
         parseAllowDelivery(shopSettings['enableDeliveryIfAvailable']);
     final configuredMaxDeliveryQty =
@@ -2721,7 +2802,7 @@ class FirestoreService {
       final shopSettings = sellerShopSettingsById[latestProduct.userId]!;
       final userSettings = sellerUserSettingsById[latestProduct.userId]!;
       final profileWorkflowEnabled =
-          (userSettings['enableShopDeliveryWorkflow'] as bool?) ?? false;
+          (userSettings['enableShopDeliveryWorkflow'] as bool?) ?? true;
       final allowDeliveryIfAvailable =
           parseAllowDelivery(shopSettings['enableDeliveryIfAvailable']);
       final configuredMaxDeliveryQty =
@@ -2858,6 +2939,15 @@ class FirestoreService {
     });
   }
 
+  /// Stream single order real-time updates for tracking.
+  Stream<OrderModel?> streamOrder(String orderId) {
+    return _firestore
+        .collection(AppConstants.ordersCollection)
+        .doc(orderId)
+        .snapshots()
+        .map((doc) => doc.exists ? OrderModel.fromMap(doc.data()!, doc.id) : null);
+  }
+
   Future<void> updateOrderStatus({
     required String orderId,
     required String sellerId,
@@ -2910,11 +3000,20 @@ class FirestoreService {
           'Seller cannot mark shipped/delivered for delivery-partner orders.');
     }
 
-    await orderRef.update({
+    final hasDeliveryAddress =
+        ((data['deliveryAddress'] as String?) ?? '').trim().isNotEmpty;
+    final enablePartnerForThisOrder = deliveryByPartner || hasDeliveryAddress;
+
+    final updatePayload = <String, dynamic>{
       'status': status,
       'statusTimeline.$status': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    };
+    if (status == 'confirmed' && enablePartnerForThisOrder && !deliveryByPartner) {
+      updatePayload['deliveryByPartner'] = true;
+    }
+
+    await orderRef.update(updatePayload);
 
     final buyerId = (data['buyerId'] as String?)?.trim() ?? '';
     final productId = (data['productId'] as String?)?.trim() ?? '';
@@ -2944,6 +3043,29 @@ class FirestoreService {
     }
   }
 
+  Future<void> handoverOrderToDeliveryPartner({
+    required String orderId,
+    required String sellerId,
+  }) async {
+    final orderRef =
+        _firestore.collection(AppConstants.ordersCollection).doc(orderId);
+    final orderSnap = await orderRef.get();
+    if (!orderSnap.exists) {
+      throw Exception('Order not found.');
+    }
+    final data = orderSnap.data() ?? <String, dynamic>{};
+    final orderSellerId = data['sellerId'] as String?;
+    if (orderSellerId != sellerId) {
+      throw Exception('You are not authorized to update this order.');
+    }
+    await orderRef.update({
+      'deliveryByPartner': true,
+      'status': 'confirmed',
+      'statusTimeline.confirmed': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   // ===== Delivery Partner =====
 
   /// Stream all orders assigned to a delivery partner.
@@ -2967,13 +3089,13 @@ class FirestoreService {
     return _firestore
         .collection(AppConstants.ordersCollection)
         .where('status', isEqualTo: 'confirmed')
+        .where('deliveryByPartner', isEqualTo: true)
         .snapshots()
         .map((snapshot) {
       final orders = snapshot.docs
           .map((doc) => OrderModel.fromMap(doc.data(), doc.id))
           .where((o) =>
-              o.deliveryByPartner &&
-              (o.deliveryPartnerId == null || o.deliveryPartnerId!.isEmpty))
+              o.deliveryPartnerId == null || o.deliveryPartnerId!.isEmpty)
           .toList();
       orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return orders;
@@ -3015,11 +3137,16 @@ class FirestoreService {
             'This order is already assigned to a delivery partner.');
       }
 
+      final existingTimeline =
+          (data['statusTimeline'] as Map<String, dynamic>?) ?? {};
+
       final updateData = <String, dynamic>{
         'deliveryPartnerId': deliveryPartnerId,
         'deliveryPartnerName': deliveryPartnerName,
         'status': 'out_for_delivery',
         'statusTimeline.out_for_delivery': FieldValue.serverTimestamp(),
+        if (!existingTimeline.containsKey('shipped'))
+          'statusTimeline.shipped': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       };
 
@@ -3188,9 +3315,17 @@ class FirestoreService {
         }
       }
 
+      final existingTimeline =
+          (data['statusTimeline'] as Map<String, dynamic>?) ?? {};
+
       transaction.update(ref, {
         'status': status,
         'statusTimeline.$status': FieldValue.serverTimestamp(),
+        if (!existingTimeline.containsKey('shipped'))
+          'statusTimeline.shipped': FieldValue.serverTimestamp(),
+        if (status == 'delivered' &&
+            !existingTimeline.containsKey('out_for_delivery'))
+          'statusTimeline.out_for_delivery': FieldValue.serverTimestamp(),
         if (status == 'delivered')
           'deliveryCodeVerifiedAt': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
@@ -5130,6 +5265,10 @@ class FirestoreService {
   /// Save custom animated avatar configuration for any user role.
   /// Stores in the `users` collection so it's universally accessible.
   Future<void> saveAvatarConfig(String userId, dynamic avatarConfig) async {
+    if (avatarConfig == null) {
+      await removeAvatarConfig(userId);
+      return;
+    }
     final configMap = avatarConfig is Map<String, dynamic>
         ? avatarConfig
         : (avatarConfig as dynamic).toMap() as Map<String, dynamic>;

@@ -232,13 +232,17 @@ class _HomeScreenState extends State<HomeScreen> {
     final currentUser = authProvider.currentUser;
     final userRole = authProvider.userRole ?? UserRoles.customer;
 
-    // Resolve profile photo: users collection → role-specific profile → null
-    String? profilePhotoUrl = currentUser?.profilePhoto;
-    if (profilePhotoUrl == null || profilePhotoUrl.isEmpty) {
-      profilePhotoUrl = userProvider.skilledProfile?.profilePicture ??
-          userProvider.customerProfile?.profilePicture ??
-          userProvider.companyProfile?.logoUrl;
-    }
+    // Resolve profile photo & avatar config: role-specific profile → users collection
+    final rolePhoto = userProvider.skilledProfile?.profilePicture ??
+        userProvider.customerProfile?.profilePicture ??
+        userProvider.companyProfile?.logoUrl;
+    final String? profilePhotoUrl = (rolePhoto != null && rolePhoto.isNotEmpty)
+        ? rolePhoto
+        : currentUser?.profilePhoto;
+
+    final effectiveAvatarConfig = userProvider.skilledProfile?.avatarConfig ??
+        userProvider.customerProfile?.avatarConfig ??
+        currentUser?.avatarConfig;
 
     // Role-based greeting
     String greeting = 'Welcome';
@@ -304,7 +308,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         }
                       },
                       child: UniversalAvatar(
-                        avatarConfig: currentUser?.avatarConfig,
+                        avatarConfig: effectiveAvatarConfig,
                         photoUrl: profilePhotoUrl,
                         fallbackName: currentUser?.name ?? 'U',
                         radius: 18,

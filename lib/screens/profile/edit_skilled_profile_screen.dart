@@ -49,31 +49,11 @@ class _EditSkilledProfileScreenState extends State<EditSkilledProfileScreen> {
   }
 
   void _showVerificationDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
-          children: [
-            Icon(Icons.security, color: Colors.orange),
-            SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Verification Required',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
-        content: const Text(
-          'Complete Aadhaar verification from Edit Full Profile to '
-          'upload portfolio images and add services.',
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(context), child: const Text('OK')),
-        ],
-      ),
+    AppDialog.warning(
+      context,
+      'Complete Aadhaar verification from Edit Full Profile to upload portfolio images and add services.',
+      title: 'Verification Required',
+      buttonText: 'OK',
     );
   }
 
@@ -130,108 +110,30 @@ class _EditSkilledProfileScreenState extends State<EditSkilledProfileScreen> {
       _showVerificationDialog();
       return;
     }
-    final titleController = TextEditingController(text: existing?.title ?? '');
-    final descController = TextEditingController(text: existing?.description ?? '');
-    final minPriceController = TextEditingController(text: existing != null ? existing.priceMin.toStringAsFixed(0) : '');
-    final maxPriceController = TextEditingController(text: existing != null ? existing.priceMax.toStringAsFixed(0) : '');
-    String selectedUnit = existing?.priceUnit ?? 'per session';
-    final formKey = GlobalKey<FormState>();
-    final priceUnits = ['per session', 'per hour', 'per day', 'per project', 'per order', 'fixed price'];
 
     showDialog(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text(existing != null ? 'Edit Service' : 'Add Service'),
-          content: SingleChildScrollView(
-            child: Form(
-              key: formKey,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextFormField(
-                    controller: titleController,
-                    decoration: const InputDecoration(labelText: 'Service Title', hintText: 'e.g., Wedding Photography', prefixIcon: Icon(Icons.work)),
-                    validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
-                  ),
-                  const SizedBox(height: 12),
-                  TextFormField(
-                    controller: descController,
-                    maxLines: 3,
-                    decoration: const InputDecoration(labelText: 'Description', hintText: 'Describe what you offer...', alignLabelWithHint: true),
-                    validator: (v) => v == null || v.trim().isEmpty ? 'Required' : null,
-                  ),
-                  const SizedBox(height: 12),
-                  Row(children: [
-                    Expanded(child: TextFormField(
-                      controller: minPriceController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Min Price', prefixText: '₹ '),
-                      validator: (v) { if (v == null || v.isEmpty) return 'Required'; if (double.tryParse(v) == null) return 'Invalid'; return null; },
-                    )),
-                    const SizedBox(width: 12),
-                    Expanded(child: TextFormField(
-                      controller: maxPriceController,
-                      keyboardType: TextInputType.number,
-                      decoration: const InputDecoration(labelText: 'Max Price', prefixText: '₹ '),
-                      validator: (v) { if (v == null || v.isEmpty) return 'Required'; if (double.tryParse(v) == null) return 'Invalid'; return null; },
-                    )),
-                  ]),
-                  const SizedBox(height: 12),
-                  DropdownButtonFormField<String>(
-                    value: selectedUnit,
-                    decoration: const InputDecoration(labelText: 'Pricing Unit', prefixIcon: Icon(Icons.schedule)),
-                    items: priceUnits.map((u) => DropdownMenuItem(value: u, child: Text(u))).toList(),
-                    onChanged: (v) => setDialogState(() => selectedUnit = v ?? selectedUnit),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Cancel')),
-            ElevatedButton(
-              onPressed: () async {
-                if (!formKey.currentState!.validate()) return;
-                Navigator.pop(ctx);
-                final authProvider = Provider.of<AuthProvider>(context, listen: false);
-                final now = DateTime.now();
-                final service = ServiceModel(
-                  id: existing?.id ?? '',
-                  userId: authProvider.currentUser!.uid,
-                  title: titleController.text.trim(),
-                  description: descController.text.trim(),
-                  priceMin: double.parse(minPriceController.text),
-                  priceMax: double.parse(maxPriceController.text),
-                  priceUnit: selectedUnit,
-                  images: existing?.images ?? [],
-                  category: _profile?.category ?? '',
-                  isActive: true,
-                  createdAt: existing?.createdAt ?? now,
-                  updatedAt: now,
-                );
-                try {
-                  if (existing != null) {
-                    await _firestoreService.updateService(service);
-                  } else {
-                    await _firestoreService.createService(service);
-                  }
-                  _loadProfile();
-                  if (mounted) {
-                    AppDialog.success(context, existing != null ? 'Service updated!' : 'Service added!');
-                  }
-                } catch (e) {
-                  if (mounted) {
-                    AppDialog.error(context, 'Error saving service', detail: e.toString());
-                  }
-                }
-              },
-              style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), foregroundColor: Colors.white),
-              child: Text(existing != null ? 'Update' : 'Add'),
-            ),
-          ],
-        ),
+      builder: (ctx) => _ServiceDialog(
+        existing: existing,
+        category: _profile?.category ?? '',
+        onSaved: (service) async {
+          try {
+            if (existing != null) {
+              await _firestoreService.updateService(service);
+            } else {
+              await _firestoreService.createService(service);
+            }
+            _loadProfile();
+            if (mounted) {
+              AppDialog.success(
+                  context, existing != null ? 'Service updated!' : 'Service added!');
+            }
+          } catch (e) {
+            if (mounted) {
+              AppDialog.error(context, 'Error saving service', detail: e.toString());
+            }
+          }
+        },
       ),
     );
   }
@@ -452,39 +354,23 @@ class _EditSkilledProfileScreenState extends State<EditSkilledProfileScreen> {
                         Icon(Icons.miscellaneous_services, size: 40, color: Colors.grey[400]),
                         const SizedBox(height: 8),
                         Text('No services added yet', style: TextStyle(color: Colors.grey[600])),
-                        const SizedBox(height: 4),
-                        Text(isVerified ? 'Add your services and pricing' : 'Verify Aadhaar to add services', style: TextStyle(color: Colors.grey[500], fontSize: 12)),
                       ]),
                     ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 12),
                   SizedBox(
                     width: double.infinity,
-                    child: ElevatedButton.icon(
+                    child: OutlinedButton.icon(
                       onPressed: () => _showAddServiceDialog(),
                       icon: const Icon(Icons.add),
-                      label: const Text('Add Service & Pricing'),
-                      style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF2196F3), foregroundColor: Colors.white, padding: const EdgeInsets.symmetric(vertical: 12), shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+                      label: const Text('Add Service'),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF6A11CB),
+                        side: const BorderSide(color: Color(0xFF6A11CB)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
                     ),
                   ),
-                  const SizedBox(height: 24),
-
-                  // Skills
-                  const Text('Skills', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  const SizedBox(height: 8),
-                  if (_profile?.skills.isNotEmpty == true)
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: _profile!.skills.map((skill) => Chip(
-                        label: Text(skill),
-                        backgroundColor: const Color(0xFF2196F3).withValues(alpha: 0.1),
-                        labelStyle: const TextStyle(color: Color(0xFF2196F3)),
-                      )).toList(),
-                    )
-                  else
-                    Text('No skills added', style: TextStyle(color: Colors.grey[600])),
-                  const SizedBox(height: 8),
-                  TextButton.icon(onPressed: _navigateToFullEdit, icon: const Icon(Icons.edit, size: 16), label: const Text('Edit Skills')),
                   const SizedBox(height: 24),
                 ]),
               ),
@@ -492,6 +378,182 @@ class _EditSkilledProfileScreenState extends State<EditSkilledProfileScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ServiceDialog extends StatefulWidget {
+  final ServiceModel? existing;
+  final String category;
+  final ValueChanged<ServiceModel> onSaved;
+
+  const _ServiceDialog({
+    super.key,
+    this.existing,
+    required this.category,
+    required this.onSaved,
+  });
+
+  @override
+  State<_ServiceDialog> createState() => _ServiceDialogState();
+}
+
+class _ServiceDialogState extends State<_ServiceDialog> {
+  final _formKey = GlobalKey<FormState>();
+  late TextEditingController _titleController;
+  late TextEditingController _descController;
+  late TextEditingController _minPriceController;
+  late TextEditingController _maxPriceController;
+  late String _selectedUnit;
+
+  static const List<String> _priceUnits = [
+    'per hour',
+    'per day',
+    'per session',
+    'per project',
+    'fixed',
+  ];
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController =
+        TextEditingController(text: widget.existing?.title ?? '');
+    _descController =
+        TextEditingController(text: widget.existing?.description ?? '');
+    _minPriceController = TextEditingController(
+        text: widget.existing != null
+            ? widget.existing!.priceMin.toStringAsFixed(0)
+            : '');
+    _maxPriceController = TextEditingController(
+        text: widget.existing != null
+            ? widget.existing!.priceMax.toStringAsFixed(0)
+            : '');
+    _selectedUnit = widget.existing?.priceUnit ?? 'per session';
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _descController.dispose();
+    _minPriceController.dispose();
+    _maxPriceController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final existing = widget.existing;
+    return AlertDialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      title: Text(existing != null ? 'Edit Service' : 'Add Service'),
+      content: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextFormField(
+                controller: _titleController,
+                decoration: const InputDecoration(
+                    labelText: 'Service Title',
+                    hintText: 'e.g., Wedding Photography',
+                    prefixIcon: Icon(Icons.work)),
+                validator: (v) =>
+                    v == null || v.trim().isEmpty ? 'Required' : null,
+              ),
+              const SizedBox(height: 12),
+              TextFormField(
+                controller: _descController,
+                maxLines: 3,
+                decoration: const InputDecoration(
+                    labelText: 'Description',
+                    hintText: 'Describe what you offer...',
+                    alignLabelWithHint: true),
+                validator: (v) =>
+                    v == null || v.trim().isEmpty ? 'Required' : null,
+              ),
+              const SizedBox(height: 12),
+              Row(children: [
+                Expanded(
+                  child: TextFormField(
+                    controller: _minPriceController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        labelText: 'Min Price', prefixText: '₹ '),
+                    validator: (v) {
+                      if (v == null || v.isEmpty) return 'Required';
+                      if (double.tryParse(v) == null) return 'Invalid';
+                      return null;
+                    },
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextFormField(
+                    controller: _maxPriceController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        labelText: 'Max Price', prefixText: '₹ '),
+                    validator: (v) {
+                      if (v == null || v.isEmpty) return 'Required';
+                      if (double.tryParse(v) == null) return 'Invalid';
+                      return null;
+                    },
+                  ),
+                ),
+              ]),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _selectedUnit,
+                decoration: const InputDecoration(
+                    labelText: 'Pricing Unit', prefixIcon: Icon(Icons.schedule)),
+                items: _priceUnits
+                    .map((u) => DropdownMenuItem(value: u, child: Text(u)))
+                    .toList(),
+                onChanged: (v) {
+                  if (v != null) {
+                    setState(() => _selectedUnit = v);
+                  }
+                },
+              ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel')),
+        ElevatedButton(
+          onPressed: () {
+            if (!_formKey.currentState!.validate()) return;
+            Navigator.pop(context);
+            final authProvider =
+                Provider.of<AuthProvider>(context, listen: false);
+            final now = DateTime.now();
+            final service = ServiceModel(
+              id: existing?.id ?? '',
+              userId: authProvider.currentUser!.uid,
+              title: _titleController.text.trim(),
+              description: _descController.text.trim(),
+              priceMin: double.parse(_minPriceController.text),
+              priceMax: double.parse(_maxPriceController.text),
+              priceUnit: _selectedUnit,
+              images: existing?.images ?? [],
+              category: widget.category,
+              isActive: true,
+              createdAt: existing?.createdAt ?? now,
+              updatedAt: now,
+            );
+            widget.onSaved(service);
+          },
+          style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2196F3),
+              foregroundColor: Colors.white),
+          child: Text(existing != null ? 'Update' : 'Add'),
+        ),
+      ],
     );
   }
 }
