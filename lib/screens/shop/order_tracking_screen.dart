@@ -234,7 +234,7 @@ class _OrderSummaryCard extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Order #${order.id.substring(0, 8).toUpperCase()}',
+                      'Order #${order.id.length > 8 ? order.id.substring(0, 8).toUpperCase() : order.id.toUpperCase()}',
                       style: TextStyle(color: Colors.grey[600], fontSize: 12),
                     ),
                   ],

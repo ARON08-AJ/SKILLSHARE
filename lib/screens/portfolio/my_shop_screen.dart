@@ -594,14 +594,23 @@ class _MyShopScreenState extends State<MyShopScreen>
   }
 
   String _purchasedOrderStatusLabel(String s) {
-    switch (s) {
+    switch (s.trim().toLowerCase()) {
       case 'out_for_delivery':
         return 'Out for Delivery';
       case 'failed_delivery':
         return 'Failed';
+      case 'delivered':
+        return 'Delivered';
+      case 'shipped':
+        return 'Shipped';
+      case 'confirmed':
+        return 'Confirmed';
+      case 'cancelled':
+        return 'Cancelled';
       default:
-        if (s.isEmpty) return 'Pending';
-        return s[0].toUpperCase() + s.substring(1);
+        final clean = s.trim();
+        if (clean.isEmpty) return 'Pending';
+        return clean[0].toUpperCase() + clean.substring(1);
     }
   }
 

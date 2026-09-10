@@ -640,18 +640,31 @@ class _OrderHistoryCard extends StatelessWidget {
   }
 
   String _statusLabel(String s) {
-    switch (s) {
+    switch (s.trim().toLowerCase()) {
       case 'out_for_delivery':
         return 'Out for Delivery';
       case 'failed_delivery':
         return 'Failed';
+      case 'delivered':
+        return 'Delivered';
+      case 'shipped':
+        return 'Shipped';
+      case 'confirmed':
+        return 'Confirmed';
+      case 'cancelled':
+        return 'Cancelled';
       default:
-        return s[0].toUpperCase() + s.substring(1);
+        final clean = s.trim();
+        if (clean.isEmpty) return 'Pending';
+        return clean[0].toUpperCase() + clean.substring(1);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final orderIdShort = order.id.length > 8
+        ? order.id.substring(0, 8).toUpperCase()
+        : order.id.toUpperCase();
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 1,
@@ -693,7 +706,7 @@ class _OrderHistoryCard extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              'Order #${order.id.substring(0, 8).toUpperCase()}  •  '
+              'Order #$orderIdShort  •  '
               '₹${order.totalPrice.toStringAsFixed(2)}  •  '
               'Qty: ${order.quantity}',
               style: TextStyle(color: Colors.grey[600], fontSize: 12),

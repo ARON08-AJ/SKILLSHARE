@@ -727,8 +727,10 @@ class _HomeScreenState extends State<HomeScreen> {
                                           BorderRadius.circular(20),
                                     ),
                                     child: Text(
-                                      req.status[0].toUpperCase() +
-                                          req.status.substring(1),
+                                      req.status.trim().isEmpty
+                                          ? 'Pending'
+                                          : req.status.trim()[0].toUpperCase() +
+                                              req.status.trim().substring(1),
                                       style: TextStyle(
                                           fontSize: 11,
                                           color: statusColor,

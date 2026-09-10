@@ -27,6 +27,12 @@ void main() async {
     debugPrint('Stack trace: ${details.stack}');
   };
 
+  // Gracefully handle UI build errors so users never see the red screen with yellow text glitch
+  ErrorWidget.builder = (FlutterErrorDetails details) {
+    debugPrint('Transient UI Build Error caught: ${details.exception}');
+    return const SizedBox.shrink();
+  };
+
   PlatformDispatcher.instance.onError = (error, stack) {
     debugPrint('Uncaught async error: $error');
     debugPrint('Stack trace: $stack');

@@ -4672,7 +4672,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Text(
-                    status[0].toUpperCase() + status.substring(1),
+                    status.trim().isEmpty
+                        ? 'Pending'
+                        : status.trim()[0].toUpperCase() +
+                            status.trim().substring(1),
                     style: const TextStyle(
                         fontSize: 11,
                         color: Colors.white,

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../providers/auth_provider.dart';
 import '../../models/order_model.dart';
 import '../../models/user_model.dart';
@@ -137,6 +136,7 @@ class _MyDeliveriesTab extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           itemCount: orders.length,
           itemBuilder: (ctx, i) => _DeliveryCard(
+            key: ValueKey(orders[i].id),
             order: orders[i],
             partnerId: partnerId,
             partnerName: partnerName,
@@ -197,6 +197,7 @@ class _AvailableDeliveriesTab extends StatelessWidget {
           padding: const EdgeInsets.all(16),
           itemCount: orders.length,
           itemBuilder: (ctx, i) => _DeliveryCard(
+            key: ValueKey(orders[i].id),
             order: orders[i],
             partnerId: partnerId,
             partnerName: partnerName,
@@ -212,6 +213,7 @@ class _AvailableDeliveriesTab extends StatelessWidget {
 
 class _DeliveryCard extends StatefulWidget {
   const _DeliveryCard({
+    super.key,
     required this.order,
     required this.partnerId,
     required this.partnerName,
@@ -236,6 +238,16 @@ class _DeliveryCardState extends State<_DeliveryCard> {
   void initState() {
     super.initState();
     _loadProfiles();
+  }
+
+  @override
+  void didUpdateWidget(_DeliveryCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.order.id != widget.order.id ||
+        oldWidget.order.sellerId != widget.order.sellerId ||
+        oldWidget.order.buyerId != widget.order.buyerId) {
+      _loadProfiles();
+    }
   }
 
   Future<void> _loadProfiles() async {
@@ -274,35 +286,24 @@ class _DeliveryCardState extends State<_DeliveryCard> {
   }
 
   String _statusLabel(String status) {
-    switch (status) {
+    switch (status.trim().toLowerCase()) {
       case 'confirmed':
         return 'Confirmed';
       case 'out_for_delivery':
         return 'Out for Delivery';
+      case 'delivered':
+        return 'Delivered';
       case 'failed_delivery':
         return 'Failed Delivery';
+      case 'shipped':
+        return 'Shipped';
+      case 'pending':
+        return 'Pending';
+      case 'cancelled':
+        return 'Cancelled';
       default:
-        return status[0].toUpperCase() + status.substring(1);
-    }
-  }
-
-  Future<void> _callPhone(String? phone) async {
-    final clean = (phone ?? '').replaceAll(RegExp(r'[^\d+]'), '');
-    if (clean.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Phone number not provided.')),
-      );
-      return;
-    }
-    final uri = Uri.parse('tel:$clean');
-    try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Could not open phone dialer: $e')),
-        );
-      }
+        if (status.trim().isEmpty) return 'Pending';
+        return status.trim()[0].toUpperCase() + status.trim().substring(1);
     }
   }
 
@@ -493,55 +494,19 @@ class _DeliveryCardState extends State<_DeliveryCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  const Row(
                     children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.storefront_rounded,
-                              size: 18, color: Color(0xFFE65100)),
-                          SizedBox(width: 6),
-                          Text(
-                            'Pickup Location (Seller)',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              color: Color(0xFFE65100),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (sellerPhone.isNotEmpty)
-                        InkWell(
-                          onTap: () => _callPhone(sellerPhone),
-                          borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border:
-                                  Border.all(color: const Color(0xFFFFB74D)),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.phone,
-                                    size: 13, color: Color(0xFFE65100)),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Call Seller',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFFE65100),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                      Icon(Icons.storefront_rounded,
+                          size: 18, color: Color(0xFFE65100)),
+                      SizedBox(width: 6),
+                      Text(
+                        'Pickup Location (Seller)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: Color(0xFFE65100),
                         ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 6),
@@ -580,55 +545,19 @@ class _DeliveryCardState extends State<_DeliveryCard> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  const Row(
                     children: [
-                      const Row(
-                        children: [
-                          Icon(Icons.location_on_rounded,
-                              size: 18, color: Color(0xFF1565C0)),
-                          SizedBox(width: 6),
-                          Text(
-                            'Deliver To (Customer)',
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              color: Color(0xFF1565C0),
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (buyerPhone.isNotEmpty)
-                        InkWell(
-                          onTap: () => _callPhone(buyerPhone),
-                          borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              borderRadius: BorderRadius.circular(16),
-                              border:
-                                  Border.all(color: const Color(0xFF90CAF9)),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.phone,
-                                    size: 13, color: Color(0xFF1565C0)),
-                                SizedBox(width: 4),
-                                Text(
-                                  'Call Customer',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: Color(0xFF1565C0),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                      Icon(Icons.location_on_rounded,
+                          size: 18, color: Color(0xFF1565C0)),
+                      SizedBox(width: 6),
+                      Text(
+                        'Deliver To (Customer)',
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13,
+                          color: Color(0xFF1565C0),
                         ),
+                      ),
                     ],
                   ),
                   const SizedBox(height: 6),
@@ -698,7 +627,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
                       icon: Icons.check_circle,
                       color: Colors.green,
                       onTap: () =>
-                          _updateStatus(context, order, partnerId, 'delivered'),
+                          _updateStatus(order, partnerId, 'delivered'),
                     ),
                   ),
                   const SizedBox(width: 10),
@@ -707,8 +636,8 @@ class _DeliveryCardState extends State<_DeliveryCard> {
                       label: 'Failed',
                       icon: Icons.cancel,
                       color: Colors.red,
-                      onTap: () => _updateStatus(
-                          context, order, partnerId, 'failed_delivery'),
+                      onTap: () =>
+                          _updateStatus(order, partnerId, 'failed_delivery'),
                     ),
                   ),
                 ],
@@ -738,7 +667,7 @@ class _DeliveryCardState extends State<_DeliveryCard> {
                             _openSellerChat(context, order, partnerId),
                         icon: const Icon(Icons.chat_bubble_outline, size: 16),
                         label: const Text(
-                          'Chat Seller',
+                           'Chat Seller',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -864,7 +793,6 @@ class _DeliveryCardState extends State<_DeliveryCard> {
   }
 
   Future<void> _updateStatus(
-    BuildContext context,
     OrderModel order,
     String partnerId,
     String status,
@@ -873,27 +801,26 @@ class _DeliveryCardState extends State<_DeliveryCard> {
       String? verificationCode;
       if (status == 'delivered') {
         verificationCode = await _promptDeliveryCode(context, order);
-        if (verificationCode == null) return;
+        if (verificationCode == null || verificationCode.isEmpty) return;
       }
+      if (!mounted) return;
       await FirestoreService().updateDeliveryStatus(
         orderId: order.id,
         deliveryPartnerId: partnerId,
         status: status,
         deliveryVerificationCode: verificationCode,
       );
-      if (context.mounted) {
-        if (status == 'delivered') {
-          AppDialog.success(
-              context, 'Delivery code verified. Marked as delivered!');
-        } else {
-          AppDialog.error(context, 'Marked as failed delivery.');
-        }
+      if (!mounted) return;
+      if (status == 'delivered') {
+        AppDialog.success(
+            context, 'Delivery code verified. Marked as delivered!');
+      } else {
+        AppDialog.error(context, 'Marked as failed delivery.');
       }
     } catch (e) {
-      if (context.mounted) {
-        AppDialog.error(context, 'Error updating delivery status',
-            detail: e.toString());
-      }
+      if (!mounted) return;
+      AppDialog.error(context, 'Error updating delivery status',
+          detail: e.toString());
     }
   }
 
@@ -904,6 +831,8 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     final controller = TextEditingController();
     final result = await showDialog<String>(
       context: context,
+      barrierDismissible: false,
+      useRootNavigator: true,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text('Verify Delivery Code'),

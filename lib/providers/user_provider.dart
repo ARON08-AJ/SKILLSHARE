@@ -37,12 +37,8 @@ class UserProvider with ChangeNotifier {
     try {
       _isLoading = true;
       _error = null;
-      _customerProfile = null;
-      _companyProfile = null;
-      notifyListeners();
-
-      _skilledProfile = await _firestoreService.getSkilledUserProfile(userId);
-
+      final profile = await _firestoreService.getSkilledUserProfile(userId);
+      _skilledProfile = profile;
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -57,17 +53,12 @@ class UserProvider with ChangeNotifier {
     try {
       _isLoading = true;
       _error = null;
-      _customerProfile = null;
-      _companyProfile = null;
-      notifyListeners();
-
       await _firestoreService.updateSkilledUserProfile(profile);
       _skilledProfile = profile;
       final idx = _verifiedUsers.indexWhere((u) => u.userId == profile.userId);
       if (idx != -1) {
         _verifiedUsers[idx] = profile;
       }
-
       _isLoading = false;
       notifyListeners();
       return true;
@@ -84,12 +75,8 @@ class UserProvider with ChangeNotifier {
     try {
       _isLoading = true;
       _error = null;
-      _skilledProfile = null;
-      _companyProfile = null;
-      notifyListeners();
-
-      _customerProfile = await _firestoreService.getCustomerProfile(userId);
-
+      final profile = await _firestoreService.getCustomerProfile(userId);
+      _customerProfile = profile;
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -104,13 +91,8 @@ class UserProvider with ChangeNotifier {
     try {
       _isLoading = true;
       _error = null;
-      _skilledProfile = null;
-      _companyProfile = null;
-      notifyListeners();
-
       await _firestoreService.updateCustomerProfile(profile);
       _customerProfile = profile;
-
       _isLoading = false;
       notifyListeners();
       return true;
@@ -127,12 +109,8 @@ class UserProvider with ChangeNotifier {
     try {
       _isLoading = true;
       _error = null;
-      _skilledProfile = null;
-      _customerProfile = null;
-      notifyListeners();
-
-      _companyProfile = await _firestoreService.getCompanyProfile(userId);
-
+      final profile = await _firestoreService.getCompanyProfile(userId);
+      _companyProfile = profile;
       _isLoading = false;
       notifyListeners();
     } catch (e) {
@@ -147,13 +125,8 @@ class UserProvider with ChangeNotifier {
     try {
       _isLoading = true;
       _error = null;
-      _skilledProfile = null;
-      _customerProfile = null;
-      notifyListeners();
-
       await _firestoreService.updateCompanyProfile(profile);
       _companyProfile = profile;
-
       _isLoading = false;
       notifyListeners();
       return true;
