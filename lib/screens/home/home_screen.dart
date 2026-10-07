@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_auth/firebase_auth.dart' as fb_auth;
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
@@ -262,7 +262,7 @@ class _HomeScreenState extends State<HomeScreen> {
     // 3. Email prefix from FirebaseAuth
     // 4. 'there'
     final firestoreName = (currentUser?.name ?? '').trim();
-    final firebaseAuthUser = FirebaseAuth.instance.currentUser;
+    final firebaseAuthUser = fb_auth.FirebaseAuth.instance.currentUser;
     final authDisplayName = (firebaseAuthUser?.displayName ?? '').trim();
     final authEmailPrefix =
         (firebaseAuthUser?.email ?? '').split('@').first.trim();
