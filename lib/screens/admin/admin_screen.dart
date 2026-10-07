@@ -1697,7 +1697,9 @@ class _UserCard extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            user.name,
+                            user.name.trim().isNotEmpty
+                                ? user.name
+                                : 'Unknown User',
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 15,
@@ -1722,7 +1724,10 @@ class _UserCard extends StatelessWidget {
                           ),
                       ],
                     ),
-                    Text(user.email,
+                    Text(
+                        user.email.trim().isNotEmpty
+                            ? user.email
+                            : '(no email)',
                         style: TextStyle(fontSize: 12, color: Colors.grey[600]),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis),

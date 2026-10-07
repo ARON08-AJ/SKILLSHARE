@@ -86,8 +86,25 @@ class AuthProvider with ChangeNotifier {
 
   Future<void> _loadUserData(String uid, int revision) async {
     try {
-      final loadedUser = await _authService.getUserData(uid);
+      var loadedUser = await _authService.getUserData(uid);
       if (!_isCurrentAuthLoad(uid, revision)) return;
+
+      // Patch missing name: if Firestore doc has no name, derive it from
+      // FirebaseAuth (displayName or email prefix) and persist it so the
+      // fix is permanent even without a new sign-up.
+      if (loadedUser != null && loadedUser.name.trim().isEmpty) {
+        final firebaseUser = _authService.currentUser;
+        final authName =
+            (firebaseUser?.displayName ?? '').trim().isNotEmpty
+                ? (firebaseUser!.displayName!.trim())
+                : (firebaseUser?.email ?? '').split('@').first.trim();
+        if (authName.isNotEmpty) {
+          loadedUser = loadedUser.copyWith(name: authName);
+          // Persist the patched name back to Firestore (best-effort)
+          _authService.mergeUserProfile(loadedUser).catchError(
+              (e) => debugPrint('mergeUserProfile (name patch) error: $e'));
+        }
+      }
 
       _currentUser = loadedUser;
 

@@ -352,8 +352,21 @@ class _ProfileTabScreenState extends State<ProfileTabScreen>
                               const SizedBox(height: 14),
                               // Name
                               Text(
-                                AppHelpers.capitalize(
-                                    _currentUser?.name ?? 'User'),
+                                AppHelpers.capitalize(() {
+                                  final n =
+                                      (_currentUser?.name ?? '').trim();
+                                  if (n.isNotEmpty) return n;
+                                  final authUser =
+                                      FirebaseAuth.instance.currentUser;
+                                  final dn =
+                                      (authUser?.displayName ?? '').trim();
+                                  if (dn.isNotEmpty) return dn;
+                                  final ep = (authUser?.email ?? '')
+                                      .split('@')
+                                      .first
+                                      .trim();
+                                  return ep.isNotEmpty ? ep : 'User';
+                                }()),
                                 style: const TextStyle(
                                   fontSize: 22,
                                   fontWeight: FontWeight.bold,
@@ -364,7 +377,11 @@ class _ProfileTabScreenState extends State<ProfileTabScreen>
                               const SizedBox(height: 4),
                               // Email
                               Text(
-                                _currentUser?.email ?? '',
+                                _currentUser?.email.trim().isNotEmpty == true
+                                    ? _currentUser!.email
+                                    : (FirebaseAuth
+                                            .instance.currentUser?.email ??
+                                        ''),
                                 style: TextStyle(
                                   fontSize: 13,
                                   color: Colors.white.withValues(alpha: 0.8),

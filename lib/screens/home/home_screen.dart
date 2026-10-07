@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../providers/auth_provider.dart';
@@ -255,6 +256,24 @@ class _HomeScreenState extends State<HomeScreen> {
       greeting = 'Good Evening';
     }
 
+    // Resolve display name with multi-tier fallback:
+    // 1. Firestore UserModel name (non-empty)
+    // 2. FirebaseAuth displayName (non-empty)
+    // 3. Email prefix from FirebaseAuth
+    // 4. 'there'
+    final firestoreName = (currentUser?.name ?? '').trim();
+    final firebaseAuthUser = FirebaseAuth.instance.currentUser;
+    final authDisplayName = (firebaseAuthUser?.displayName ?? '').trim();
+    final authEmailPrefix =
+        (firebaseAuthUser?.email ?? '').split('@').first.trim();
+    final resolvedName = firestoreName.isNotEmpty
+        ? firestoreName
+        : authDisplayName.isNotEmpty
+            ? authDisplayName
+            : authEmailPrefix.isNotEmpty
+                ? authEmailPrefix
+                : 'there';
+
     return Scaffold(
       body: SafeArea(
         top: false,
@@ -335,7 +354,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          '$greeting, ${AppHelpers.capitalize((currentUser?.name ?? 'there').split(' ').first)}!',
+                          '$greeting, ${AppHelpers.capitalize(resolvedName.split(' ').first)}!',
                           style: const TextStyle(
                               fontSize: 22,
                               fontWeight: FontWeight.bold,
