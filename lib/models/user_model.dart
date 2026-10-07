@@ -29,13 +29,30 @@ class UserModel {
   });
 
   factory UserModel.fromMap(Map<String, dynamic> map, String uid) {
-    final rawRole = (map['role'] as String?) ?? '';
+    final rawRole = ((map['role'] ??
+            map['userRole'] ??
+            map['user_role'] ??
+            map['type']) as String?) ??
+        '';
     final normalizedRole = UserRoles.normalizeRole(rawRole) ?? rawRole;
+
+    final rawEmail = ((map['email'] ??
+            map['userEmail'] ??
+            map['user_email'] ??
+            map['contactEmail'] ??
+            map['mail']) as String?) ??
+        '';
+
+    final rawName = ((map['name'] ??
+            map['displayName'] ??
+            map['fullName'] ??
+            map['userName']) as String?) ??
+        '';
 
     return UserModel(
       uid: uid,
-      email: map['email'] ?? '',
-      name: map['name'] ?? '',
+      email: rawEmail,
+      name: rawName,
       role: normalizedRole,
       phone: map['phone'],
       profilePhoto: map['profilePhoto'],
@@ -66,6 +83,8 @@ class UserModel {
 
   UserModel copyWith({
     String? name,
+    String? email,
+    String? role,
     String? phone,
     String? profilePhoto,
     bool? isActive,
@@ -74,9 +93,9 @@ class UserModel {
   }) {
     return UserModel(
       uid: uid,
-      email: email,
+      email: email ?? this.email,
       name: name ?? this.name,
-      role: role,
+      role: role ?? this.role,
       phone: phone ?? this.phone,
       profilePhoto: profilePhoto ?? this.profilePhoto,
       createdAt: createdAt,

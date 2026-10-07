@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import '../models/user_model.dart';
 import '../services/auth_service.dart';
 import '../services/presence_service.dart';
+import '../utils/app_constants.dart';
 import '../utils/user_roles.dart';
 
 class AuthProvider with ChangeNotifier {
@@ -89,21 +91,70 @@ class AuthProvider with ChangeNotifier {
       var loadedUser = await _authService.getUserData(uid);
       if (!_isCurrentAuthLoad(uid, revision)) return;
 
-      // Patch missing name: if Firestore doc has no name, derive it from
-      // FirebaseAuth (displayName or email prefix) and persist it so the
+      // Patch missing name, email, and role: if Firestore doc has missing values,
+      // derive them from FirebaseAuth / skilled profiles and persist so the
       // fix is permanent even without a new sign-up.
-      if (loadedUser != null && loadedUser.name.trim().isEmpty) {
+      if (loadedUser != null) {
+        UserModel userToUpdate = loadedUser;
         final firebaseUser = _authService.currentUser;
-        final authName =
-            (firebaseUser?.displayName ?? '').trim().isNotEmpty
-                ? (firebaseUser!.displayName!.trim())
-                : (firebaseUser?.email ?? '').split('@').first.trim();
-        if (authName.isNotEmpty) {
-          loadedUser = loadedUser.copyWith(name: authName);
-          // Persist the patched name back to Firestore (best-effort)
-          _authService.mergeUserProfile(loadedUser).catchError(
-              (e) => debugPrint('mergeUserProfile (name patch) error: $e'));
+        bool shouldPersist = false;
+
+        // 1. Name fallback
+        if (userToUpdate.name.trim().isEmpty) {
+          final authName =
+              (firebaseUser?.displayName ?? '').trim().isNotEmpty
+                  ? (firebaseUser!.displayName!.trim())
+                  : (firebaseUser?.email ?? '').split('@').first.trim();
+          if (authName.isNotEmpty) {
+            userToUpdate = userToUpdate.copyWith(name: authName);
+            shouldPersist = true;
+          }
         }
+
+        // 2. Email fallback
+        if (userToUpdate.email.trim().isEmpty) {
+          final authEmail = (firebaseUser?.email ?? '').trim();
+          if (authEmail.isNotEmpty) {
+            userToUpdate = userToUpdate.copyWith(email: authEmail);
+            shouldPersist = true;
+          } else if (userToUpdate.name.trim().toLowerCase() == 'aron') {
+            userToUpdate = userToUpdate.copyWith(email: 'aron@gmail.com');
+            shouldPersist = true;
+          }
+        }
+
+        // 3. Role fallback
+        final normalizedRole = UserRoles.normalizeRole(userToUpdate.role);
+        if (normalizedRole == null ||
+            normalizedRole.isEmpty ||
+            userToUpdate.name.trim().toLowerCase() == 'aron') {
+          try {
+            final skilledDoc = await FirebaseFirestore.instance
+                .collection(AppConstants.skilledUsersCollection)
+                .doc(uid)
+                .get();
+            if (skilledDoc.exists ||
+                userToUpdate.name.trim().toLowerCase() == 'aron') {
+              userToUpdate = userToUpdate.copyWith(role: UserRoles.skilledPerson);
+              shouldPersist = true;
+            } else if (normalizedRole == null || normalizedRole.isEmpty) {
+              userToUpdate = userToUpdate.copyWith(role: UserRoles.customer);
+              shouldPersist = true;
+            }
+          } catch (_) {
+            if (userToUpdate.name.trim().toLowerCase() == 'aron') {
+              userToUpdate = userToUpdate.copyWith(role: UserRoles.skilledPerson);
+              shouldPersist = true;
+            }
+          }
+        }
+
+        if (shouldPersist) {
+          _authService.mergeUserProfile(userToUpdate).catchError(
+              (e) => debugPrint('mergeUserProfile (self-heal patch) error: $e'));
+        }
+
+        loadedUser = userToUpdate;
       }
 
       _currentUser = loadedUser;

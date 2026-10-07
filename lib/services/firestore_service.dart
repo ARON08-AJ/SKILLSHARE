@@ -959,6 +959,7 @@ class FirestoreService {
   Future<void> updateUserByAdmin({
     required String userId,
     String? name,
+    String? email,
     String? phone,
     String? role,
     bool? isActive,
@@ -972,6 +973,13 @@ class FirestoreService {
       final normalized = name.trim();
       if (normalized.isNotEmpty) {
         payload['name'] = normalized;
+      }
+    }
+
+    if (email != null) {
+      final normalizedEmail = email.trim();
+      if (normalizedEmail.isNotEmpty) {
+        payload['email'] = normalizedEmail;
       }
     }
 
