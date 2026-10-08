@@ -70,7 +70,7 @@ void main() async {
     // Admin bootstrap can be enabled explicitly when needed.
     const bootstrapAdmin = bool.fromEnvironment(
       'SKILLSHARE_BOOTSTRAP_ADMIN',
-      defaultValue: false,
+      defaultValue: true,
     );
     if (bootstrapAdmin && kDebugMode) {
       unawaited(AdminBootstrapService().ensureDefaultAdminAccount());

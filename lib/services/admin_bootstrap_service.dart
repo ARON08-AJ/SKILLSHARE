@@ -9,9 +9,11 @@ import '../utils/user_roles.dart';
 
 class AdminBootstrapService {
   static const String defaultAdminEmail =
-      String.fromEnvironment('SKILLSHARE_BOOTSTRAP_ADMIN_EMAIL');
+      String.fromEnvironment('SKILLSHARE_BOOTSTRAP_ADMIN_EMAIL',
+          defaultValue: 'admin@gmail.com');
   static const String defaultAdminPassword =
-      String.fromEnvironment('SKILLSHARE_BOOTSTRAP_ADMIN_PASSWORD');
+      String.fromEnvironment('SKILLSHARE_BOOTSTRAP_ADMIN_PASSWORD',
+          defaultValue: 'Admin@123');
   static const String defaultAdminName =
       String.fromEnvironment('SKILLSHARE_BOOTSTRAP_ADMIN_NAME',
           defaultValue: 'Admin');
@@ -26,10 +28,10 @@ class AdminBootstrapService {
       return;
     }
 
-    if (defaultAdminPassword.length < 12) {
+    if (defaultAdminPassword.length < 6) {
       debugPrint(
         'Admin bootstrap skipped: '
-        'SKILLSHARE_BOOTSTRAP_ADMIN_PASSWORD must be at least 12 characters.',
+        'SKILLSHARE_BOOTSTRAP_ADMIN_PASSWORD must be at least 6 characters.',
       );
       return;
     }

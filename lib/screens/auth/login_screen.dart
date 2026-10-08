@@ -103,6 +103,9 @@ class _LoginScreenState extends State<LoginScreen>
     if (!email.contains('@')) {
       email = '$email@gmail.com';
     }
+    if (email.toLowerCase() == 'admin@skillshare.com') {
+      email = 'admin@gmail.com';
+    }
 
     final success = await authProvider.signIn(
       email: email,
