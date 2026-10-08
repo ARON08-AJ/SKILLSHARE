@@ -8,6 +8,7 @@ import '../../services/firestore_service.dart';
 import '../../utils/app_helpers.dart';
 import '../../utils/app_dialog.dart';
 import '../../utils/modern_pickers.dart';
+import '../../utils/web_image_loader.dart';
 import '../chat/chat_detail_screen.dart';
 
 class DeliveryScreen extends StatefulWidget {
@@ -313,27 +314,41 @@ class _DeliveryCardState extends State<_DeliveryCard> {
     final isAssigned = widget.isAssigned;
     final partnerId = widget.partnerId;
 
-    final sellerName = _sellerUser?.name.trim().isNotEmpty == true
-        ? _sellerUser!.name.trim()
-        : 'Skilled Seller';
+    final snapshotSellerAddr =
+        (order.pickupAddressSnapshot?['address'] as String?)?.trim() ?? '';
+    final sellerName = order.sellerName?.trim().isNotEmpty == true
+        ? order.sellerName!.trim()
+        : (_sellerUser?.name.trim().isNotEmpty == true
+            ? _sellerUser!.name.trim()
+            : 'Skilled Seller');
     final sellerPhone = _sellerUser?.phone?.trim() ?? '';
-    final sellerAddress = _sellerProfile?.address?.trim().isNotEmpty == true
-        ? _sellerProfile!.address!.trim()
-        : (_sellerProfile?.city?.trim().isNotEmpty == true
-            ? _sellerProfile!.city!.trim()
-            : 'Seller Studio / Shop Location');
+    final sellerAddress = snapshotSellerAddr.isNotEmpty
+        ? snapshotSellerAddr
+        : (order.sellerAddress?.trim().isNotEmpty == true
+            ? order.sellerAddress!.trim()
+            : (_sellerProfile?.address?.trim().isNotEmpty == true
+                ? _sellerProfile!.address!.trim()
+                : (_sellerProfile?.city?.trim().isNotEmpty == true
+                    ? _sellerProfile!.city!.trim()
+                    : 'Seller address not available')));
 
-    final buyerName = order.buyerName?.trim().isNotEmpty == true
-        ? order.buyerName!.trim()
-        : (_buyerUser?.name.trim().isNotEmpty == true
-            ? _buyerUser!.name.trim()
-            : 'Customer');
+    final snapshotBuyerAddr =
+        (order.deliveryAddressSnapshot?['address'] as String?)?.trim() ?? '';
+    final buyerName = order.deliveryAddressSnapshot?['name']?.trim().isNotEmpty == true
+        ? order.deliveryAddressSnapshot!['name'].trim()
+        : (order.buyerName?.trim().isNotEmpty == true
+            ? order.buyerName!.trim()
+            : (_buyerUser?.name.trim().isNotEmpty == true
+                ? _buyerUser!.name.trim()
+                : 'Customer'));
     final buyerPhone = _buyerUser?.phone?.trim() ?? '';
-    final buyerAddress = order.deliveryAddress?.trim().isNotEmpty == true
-        ? order.deliveryAddress!.trim()
-        : (order.deliveryLocation?.trim().isNotEmpty == true
-            ? order.deliveryLocation!.trim()
-            : 'Delivery address specified in order');
+    final buyerAddress = snapshotBuyerAddr.isNotEmpty
+        ? snapshotBuyerAddr
+        : (order.deliveryAddress?.trim().isNotEmpty == true
+            ? order.deliveryAddress!.trim()
+            : (order.deliveryLocation?.trim().isNotEmpty == true
+                ? order.deliveryLocation!.trim()
+                : 'Delivery address not available'));
 
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
@@ -404,35 +419,15 @@ class _DeliveryCardState extends State<_DeliveryCard> {
               ),
               child: Row(
                 children: [
-                  if (order.productImage != null &&
-                      order.productImage!.trim().isNotEmpty)
-                    ClipRRect(
-                      borderRadius: BorderRadius.circular(8),
-                      child: Image.network(
-                        order.productImage!,
-                        width: 54,
-                        height: 54,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => Container(
-                          width: 54,
-                          height: 54,
-                          color: Colors.grey[200],
-                          child: const Icon(Icons.inventory_2_outlined,
-                              color: Colors.grey),
-                        ),
-                      ),
-                    )
-                  else
-                    Container(
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: WebImageLoader.loadImage(
+                      imageUrl: order.productImage,
                       width: 54,
                       height: 54,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFF6B35).withValues(alpha: 0.1),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(Icons.inventory_2_rounded,
-                          color: Color(0xFFFF6B35)),
+                      fit: BoxFit.cover,
                     ),
+                  ),
                   const SizedBox(width: 12),
                   Expanded(
                     child: Column(

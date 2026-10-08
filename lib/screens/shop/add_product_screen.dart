@@ -12,6 +12,7 @@ import '../../services/firestore_service.dart';
 import '../../services/cloudinary_service.dart';
 import '../../providers/auth_provider.dart' as app_auth;
 import '../../providers/user_provider.dart';
+import '../../utils/app_constants.dart';
 import '../../utils/app_dialog.dart';
 import '../../utils/web_image_loader.dart';
 
@@ -44,6 +45,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
   final ImagePicker _picker = ImagePicker();
 
   String? _selectedCategory;
+  String? _selectedListingType;
   final List<String> _imageUrls = [];
   final List<Uint8List> _pendingImageBytes = [];
   int _stockIncrease = 0;
@@ -64,6 +66,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
     super.initState();
     if (_isEditing) {
       final p = widget.existingProduct!;
+      _selectedListingType = p.type;
       _nameController.text = p.name;
       _descriptionController.text = p.description;
       _priceController.text = p.price.toString();
@@ -71,6 +74,8 @@ class _AddProductScreenState extends State<AddProductScreen> {
       _stockIncrease = 0;
       _selectedCategory = p.category;
       _imageUrls.addAll(p.images);
+    } else {
+      _selectedListingType = null;
     }
     _configureWebPasteListener();
     WidgetsBinding.instance
@@ -354,6 +359,15 @@ class _AddProductScreenState extends State<AddProductScreen> {
   }
 
   Future<void> _saveProduct() async {
+    if (_selectedListingType == null) {
+      AppDialog.info(
+        context,
+        'Please select a Listing Type (Product / Deliverable or Service).',
+        title: 'Listing Type Required',
+      );
+      return;
+    }
+
     if (!_formKey.currentState!.validate()) return;
 
     if (_selectedCategory == null) {
@@ -361,9 +375,24 @@ class _AddProductScreenState extends State<AddProductScreen> {
       return;
     }
 
+    final isService = _selectedListingType == AppConstants.listingTypeService;
+
     if (_pendingImageBytes.isEmpty && _imageUrls.isEmpty) {
-      AppDialog.info(context, 'Please add at least one product image');
+      AppDialog.info(
+        context,
+        isService
+            ? 'Please add at least one service image or banner'
+            : 'Please add at least one product image',
+      );
       return;
+    }
+
+    if (!isService && !_isEditing) {
+      final stockVal = int.tryParse(_stockController.text.trim());
+      if (stockVal == null || stockVal < 0) {
+        AppDialog.info(context, 'Please enter a valid stock quantity for physical products');
+        return;
+      }
     }
 
     setState(() {
@@ -376,16 +405,18 @@ class _AddProductScreenState extends State<AddProductScreen> {
       final now = DateTime.now();
       List<String> finalImageUrls = List.from(_imageUrls);
       final baseStock = _isEditing ? widget.existingProduct!.stock : 0;
-      final updatedStock = _isEditing
-          ? baseStock + _stockIncrease
-          : int.parse(_stockController.text.trim());
+      final updatedStock = isService
+          ? 0
+          : (_isEditing
+              ? baseStock + _stockIncrease
+              : int.parse(_stockController.text.trim()));
 
       // Upload selected images
       if (_pendingImageBytes.isNotEmpty) {
         for (final bytes in _pendingImageBytes) {
           final url = await _cloudinaryService.uploadImageBytes(
             bytes,
-            folder: 'products',
+            folder: isService ? 'services' : 'products',
           );
           if (url != null) {
             finalImageUrls.add(url);
@@ -404,6 +435,7 @@ class _AddProductScreenState extends State<AddProductScreen> {
         images: finalImageUrls,
         category: _selectedCategory!,
         stock: updatedStock,
+        type: _selectedListingType!,
         isAvailable: _isEditing ? widget.existingProduct!.isAvailable : true,
         rating: _isEditing ? widget.existingProduct!.rating : 0.0,
         reviewCount: _isEditing ? widget.existingProduct!.reviewCount : 0,
@@ -418,11 +450,12 @@ class _AddProductScreenState extends State<AddProductScreen> {
       }
 
       if (mounted) {
+        final typeLabel = isService ? 'Service' : 'Product';
         AppDialog.success(
           context,
           _isEditing
-              ? 'Product updated successfully!'
-              : 'Product added successfully!',
+              ? '$typeLabel updated successfully!'
+              : '$typeLabel added successfully!',
           onDismiss: () => Navigator.of(context).pop(true),
         );
       }
@@ -579,7 +612,14 @@ class _AddProductScreenState extends State<AddProductScreen> {
         },
         child: Scaffold(
           appBar: AppBar(
-        title: Text(_isEditing ? 'Edit Product' : 'Add Product',
+        title: Text(
+            _isEditing
+                ? (_selectedListingType == AppConstants.listingTypeService
+                    ? 'Edit Service'
+                    : 'Edit Product')
+                : (_selectedListingType == AppConstants.listingTypeService
+                    ? 'Add Service'
+                    : 'Add Listing'),
             style: const TextStyle(color: Colors.white)),
         iconTheme: const IconThemeData(color: Colors.white),
         flexibleSpace: Container(
@@ -597,7 +637,240 @@ class _AddProductScreenState extends State<AddProductScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // Product Name
+            // Listing Type Selection (Product / Deliverable vs Service)
+            Card(
+              elevation: 2,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12),
+                side: BorderSide(
+                  color: _selectedListingType == null
+                      ? Colors.orange.shade300
+                      : Colors.transparent,
+                  width: _selectedListingType == null ? 1.5 : 0,
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Text(
+                          'Listing Type',
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFFE91E63),
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Text(
+                          '*',
+                          style: TextStyle(
+                            color: Colors.red,
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        const Spacer(),
+                        if (_selectedListingType != null)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                            decoration: BoxDecoration(
+                              color: _selectedListingType ==
+                                      AppConstants.listingTypeService
+                                  ? const Color(0xFF9C27B0).withValues(alpha: 0.12)
+                                  : const Color(0xFFE91E63).withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              _selectedListingType ==
+                                      AppConstants.listingTypeService
+                                  ? 'Service'
+                                  : 'Deliverable',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                                color: _selectedListingType ==
+                                        AppConstants.listingTypeService
+                                    ? const Color(0xFF9C27B0)
+                                    : const Color(0xFFE91E63),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Select whether you are selling a physical deliverable product with shipping or offering a skilled service with project milestones.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                    ),
+                    const SizedBox(height: 14),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: InkWell(
+                            onTap: () {
+                              setState(() {
+                                _selectedListingType =
+                                    AppConstants.listingTypeProduct;
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: _selectedListingType ==
+                                          AppConstants.listingTypeProduct
+                                      ? const Color(0xFFE91E63)
+                                      : Colors.grey.shade300,
+                                  width: _selectedListingType ==
+                                          AppConstants.listingTypeProduct
+                                      ? 2
+                                      : 1,
+                                ),
+                                color: _selectedListingType ==
+                                        AppConstants.listingTypeProduct
+                                    ? const Color(0xFFE91E63)
+                                        .withValues(alpha: 0.08)
+                                    : Colors.grey.shade50,
+                              ),
+                              child: Row(
+                                children: [
+                                  Radio<String>(
+                                    value: AppConstants.listingTypeProduct,
+                                    groupValue: _selectedListingType,
+                                    activeColor: const Color(0xFFE91E63),
+                                    onChanged: (val) {
+                                      setState(() {
+                                        _selectedListingType = val;
+                                      });
+                                    },
+                                  ),
+                                  const Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Product / Deliverable',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                        SizedBox(height: 2),
+                                        Text(
+                                          'Physical item & shipping',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: InkWell(
+                            onTap: () {
+                              setState(() {
+                                _selectedListingType =
+                                    AppConstants.listingTypeService;
+                              });
+                            },
+                            borderRadius: BorderRadius.circular(10),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 12),
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(
+                                  color: _selectedListingType ==
+                                          AppConstants.listingTypeService
+                                      ? const Color(0xFF9C27B0)
+                                      : Colors.grey.shade300,
+                                  width: _selectedListingType ==
+                                          AppConstants.listingTypeService
+                                      ? 2
+                                      : 1,
+                                ),
+                                color: _selectedListingType ==
+                                        AppConstants.listingTypeService
+                                    ? const Color(0xFF9C27B0)
+                                        .withValues(alpha: 0.08)
+                                    : Colors.grey.shade50,
+                              ),
+                              child: Row(
+                                children: [
+                                  Radio<String>(
+                                    value: AppConstants.listingTypeService,
+                                    groupValue: _selectedListingType,
+                                    activeColor: const Color(0xFF9C27B0),
+                                    onChanged: (val) {
+                                      setState(() {
+                                        _selectedListingType = val;
+                                      });
+                                    },
+                                  ),
+                                  const Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Service',
+                                          style: TextStyle(
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 13,
+                                          ),
+                                        ),
+                                        SizedBox(height: 2),
+                                        Text(
+                                          'Project & timeline',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            color: Colors.grey,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (_selectedListingType == null) ...[
+                      const SizedBox(height: 10),
+                      const Text(
+                        'Please select one type to continue',
+                        style: TextStyle(
+                          color: Colors.orange,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 16),
+
+            // Product / Service Name
             Card(
               elevation: 2,
               child: Padding(
@@ -605,9 +878,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Product Name',
-                      style: TextStyle(
+                    Text(
+                      _selectedListingType == AppConstants.listingTypeService
+                          ? 'Service Title'
+                          : 'Product Name',
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFFE91E63),
@@ -617,15 +892,24 @@ class _AddProductScreenState extends State<AddProductScreen> {
                     TextFormField(
                       controller: _nameController,
                       decoration: InputDecoration(
-                        hintText: 'Enter product name',
+                        hintText: _selectedListingType ==
+                                AppConstants.listingTypeService
+                            ? 'e.g. Website Development, Custom Painting...'
+                            : 'Enter product name',
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
                         ),
-                        prefixIcon: const Icon(Icons.shopping_bag),
+                        prefixIcon: Icon(_selectedListingType ==
+                                AppConstants.listingTypeService
+                            ? Icons.design_services
+                            : Icons.shopping_bag),
                       ),
                       validator: (value) {
                         if (value == null || value.isEmpty) {
-                          return 'Please enter product name';
+                          return _selectedListingType ==
+                                  AppConstants.listingTypeService
+                              ? 'Please enter service title'
+                              : 'Please enter product name';
                         }
                         return null;
                       },
@@ -723,9 +1007,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Description',
-                      style: TextStyle(
+                    Text(
+                      _selectedListingType == AppConstants.listingTypeService
+                          ? 'Service Details & Scope'
+                          : 'Description',
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.bold,
                         color: Color(0xFFE91E63),
@@ -736,7 +1022,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       controller: _descriptionController,
                       textAlignVertical: TextAlignVertical.top,
                       decoration: InputDecoration(
-                        hintText: 'Describe your product',
+                        hintText: _selectedListingType ==
+                                AppConstants.listingTypeService
+                            ? 'Describe your service scope, deliverables, timeline expectations, etc.'
+                            : 'Describe your product',
                         alignLabelWithHint: true,
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(8),
@@ -759,7 +1048,10 @@ class _AddProductScreenState extends State<AddProductScreen> {
                       maxLines: 4,
                       validator: (value) {
                         if (value == null || value.isEmpty) {
-                          return 'Please enter product description';
+                          return _selectedListingType ==
+                                  AppConstants.listingTypeService
+                              ? 'Please enter service details'
+                              : 'Please enter product description';
                         }
                         return null;
                       },
@@ -771,199 +1063,277 @@ class _AddProductScreenState extends State<AddProductScreen> {
             const SizedBox(height: 16),
 
             // Price and Stock
-            Row(
-              children: [
-                Expanded(
-                  child: Card(
-                    elevation: 2,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Price',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFFE91E63),
-                            ),
+            if (_selectedListingType == AppConstants.listingTypeService) ...[
+              // Service Price (Full width, no stock required)
+              Card(
+                elevation: 2,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Service Price / Starting Rate',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFFE91E63),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Fixed fee or starting cost for this service.',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
+                      ),
+                      const SizedBox(height: 8),
+                      TextFormField(
+                        controller: _priceController,
+                        decoration: InputDecoration(
+                          hintText: '0.00',
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 16,
                           ),
-                          const SizedBox(height: 8),
-                          TextFormField(
-                            controller: _priceController,
-                            decoration: InputDecoration(
-                              hintText: '0.00',
-                              contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 14,
-                                vertical: 16,
-                              ),
-                              prefixIconConstraints: const BoxConstraints(
-                                minWidth: 44,
-                                minHeight: 44,
-                              ),
-                              prefixIcon: const Padding(
-                                padding: EdgeInsets.only(left: 14, right: 8),
-                                child: Center(
-                                  widthFactor: 1,
-                                  child: Text(
-                                    '₹',
-                                    style: TextStyle(
-                                      fontSize: 18,
-                                      fontWeight: FontWeight.w600,
-                                      color: Color(0xFF424242),
-                                    ),
-                                  ),
+                          prefixIconConstraints: const BoxConstraints(
+                            minWidth: 44,
+                            minHeight: 44,
+                          ),
+                          prefixIcon: const Padding(
+                            padding: EdgeInsets.only(left: 14, right: 8),
+                            child: Center(
+                              widthFactor: 1,
+                              child: Text(
+                                '₹',
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF424242),
                                 ),
                               ),
-                              border: OutlineInputBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
                             ),
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            inputFormatters: [_moneyInputFormatter],
-                            validator: (value) {
-                              if (value == null || value.isEmpty) {
-                                return 'Enter price';
-                              }
-                              if (double.tryParse(value) == null) {
-                                return 'Invalid price';
-                              }
-                              return null;
-                            },
                           ),
-                        ],
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [_moneyInputFormatter],
+                        validator: (value) {
+                          if (value == null || value.isEmpty) {
+                            return 'Enter service price';
+                          }
+                          if (double.tryParse(value) == null) {
+                            return 'Invalid price';
+                          }
+                          return null;
+                        },
                       ),
-                    ),
+                    ],
                   ),
                 ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: Card(
-                    elevation: 2,
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Stock',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFFE91E63),
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          if (_isEditing) ...[
-                            Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 10),
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.grey.shade300),
-                                color: Colors.grey.shade50,
-                              ),
-                              child: Text(
-                                'Current: ${widget.existingProduct!.stock}',
-                                style: const TextStyle(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Container(
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: Colors.grey.shade300),
-                              ),
-                              child: Row(
-                                children: [
-                                  IconButton(
-                                    onPressed: _stockIncrease > 0
-                                        ? () {
-                                            setState(() {
-                                              _stockIncrease--;
-                                            });
-                                          }
-                                        : null,
-                                    icon:
-                                        const Icon(Icons.remove_circle_outline),
-                                  ),
-                                  Expanded(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const Text(
-                                          'Increase By',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: Colors.grey,
-                                          ),
-                                        ),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          '$_stockIncrease',
-                                          style: const TextStyle(
-                                            fontSize: 20,
-                                            fontWeight: FontWeight.bold,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  IconButton(
-                                    onPressed: () {
-                                      setState(() {
-                                        _stockIncrease++;
-                                      });
-                                    },
-                                    icon: const Icon(Icons.add_circle_outline),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'New Stock: ${widget.existingProduct!.stock + _stockIncrease}',
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
+              ),
+            ] else ...[
+              // Physical Product Price & Stock
+              Row(
+                children: [
+                  Expanded(
+                    child: Card(
+                      elevation: 2,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Price',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
                                 color: Color(0xFFE91E63),
                               ),
                             ),
-                          ] else
+                            const SizedBox(height: 8),
                             TextFormField(
-                              controller: _stockController,
+                              controller: _priceController,
                               decoration: InputDecoration(
-                                hintText: '0',
+                                hintText: '0.00',
+                                contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 14,
+                                  vertical: 16,
+                                ),
+                                prefixIconConstraints: const BoxConstraints(
+                                  minWidth: 44,
+                                  minHeight: 44,
+                                ),
+                                prefixIcon: const Padding(
+                                  padding: EdgeInsets.only(left: 14, right: 8),
+                                  child: Center(
+                                    widthFactor: 1,
+                                    child: Text(
+                                      '₹',
+                                      style: TextStyle(
+                                        fontSize: 18,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF424242),
+                                      ),
+                                    ),
+                                  ),
+                                ),
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(8),
                                 ),
-                                prefixIcon: const Icon(Icons.inventory),
                               ),
-                              keyboardType: TextInputType.number,
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                decimal: true,
+                              ),
+                              inputFormatters: [_moneyInputFormatter],
                               validator: (value) {
                                 if (value == null || value.isEmpty) {
-                                  return 'Enter stock';
+                                  return 'Enter price';
                                 }
-                                if (int.tryParse(value) == null) {
-                                  return 'Invalid';
+                                if (double.tryParse(value) == null) {
+                                  return 'Invalid price';
                                 }
                                 return null;
                               },
                             ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ],
-            ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: Card(
+                      elevation: 2,
+                      child: Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text(
+                              'Stock',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFFE91E63),
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            if (_isEditing) ...[
+                              Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 10),
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(8),
+                                  border:
+                                      Border.all(color: Colors.grey.shade300),
+                                  color: Colors.grey.shade50,
+                                ),
+                                child: Text(
+                                  'Current: ${widget.existingProduct!.stock}',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(8),
+                                  border:
+                                      Border.all(color: Colors.grey.shade300),
+                                ),
+                                child: Row(
+                                  children: [
+                                    IconButton(
+                                      onPressed: _stockIncrease > 0
+                                          ? () {
+                                              setState(() {
+                                                _stockIncrease--;
+                                              });
+                                            }
+                                          : null,
+                                      icon: const Icon(
+                                          Icons.remove_circle_outline),
+                                    ),
+                                    Expanded(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Text(
+                                            'Increase By',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.grey,
+                                            ),
+                                          ),
+                                          const SizedBox(height: 2),
+                                          Text(
+                                            '$_stockIncrease',
+                                            style: const TextStyle(
+                                              fontSize: 20,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    IconButton(
+                                      onPressed: () {
+                                        setState(() {
+                                          _stockIncrease++;
+                                        });
+                                      },
+                                      icon:
+                                          const Icon(Icons.add_circle_outline),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+                              Text(
+                                'New Stock: ${widget.existingProduct!.stock + _stockIncrease}',
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFFE91E63),
+                                ),
+                              ),
+                            ] else
+                              TextFormField(
+                                controller: _stockController,
+                                decoration: InputDecoration(
+                                  hintText: '0',
+                                  border: OutlineInputBorder(
+                                    borderRadius: BorderRadius.circular(8),
+                                  ),
+                                  prefixIcon: const Icon(Icons.inventory),
+                                ),
+                                keyboardType: TextInputType.number,
+                                validator: (value) {
+                                  if (value == null || value.isEmpty) {
+                                    return 'Enter stock';
+                                  }
+                                  if (int.tryParse(value) == null) {
+                                    return 'Invalid';
+                                  }
+                                  return null;
+                                },
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
             const SizedBox(height: 16),
 
             // Image Upload with Preview

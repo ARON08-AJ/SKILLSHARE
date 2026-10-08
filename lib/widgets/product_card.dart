@@ -26,7 +26,10 @@ class ProductCard extends StatelessWidget {
             ? null
             : product.images.firstWhere((url) => url.trim().isNotEmpty);
 
-    final bool inStock = product.isAvailable && product.stock > 0;
+    final bool isAvailable = product.isService
+        ? product.isAvailable
+        : (product.isAvailable && product.stock > 0);
+    final bool inStock = product.isPhysicalProduct ? isAvailable : true;
     final bool isTopRated = product.rating >= 4.5 && product.reviewCount > 0;
     final bool isBestSeller = product.reviewCount >= 10;
 
@@ -74,7 +77,7 @@ class ProductCard extends StatelessWidget {
                               errorWidget: Container(
                                 color: const Color(0xFFF5F5F5),
                                 child: const Icon(
-                                  Icons.broken_image,
+                                  Icons.image_outlined,
                                   color: Colors.grey,
                                   size: 28,
                                 ),
@@ -82,8 +85,10 @@ class ProductCard extends StatelessWidget {
                             )
                           : Container(
                               color: const Color(0xFFF5F5F5),
-                              child: const Icon(
-                                Icons.shopping_bag_outlined,
+                              child: Icon(
+                                product.isService
+                                    ? Icons.design_services_outlined
+                                    : Icons.shopping_bag_outlined,
                                 size: 30,
                                 color: Colors.grey,
                               ),
@@ -115,7 +120,32 @@ class ProductCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                      if (!inStock)
+                      if (product.isService)
+                        Positioned(
+                          top: 0,
+                          right: 0,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
+                            ),
+                            decoration: const BoxDecoration(
+                              color: Color(0xFF9C27B0),
+                              borderRadius: BorderRadius.only(
+                                bottomLeft: Radius.circular(8),
+                              ),
+                            ),
+                            child: Text(
+                              'SERVICE',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: compact ? 8 : 9,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        ),
+                      if (product.isPhysicalProduct && !inStock)
                         Container(
                           color: Colors.black.withValues(alpha: 0.38),
                           child: Center(
@@ -218,7 +248,7 @@ class ProductCard extends StatelessWidget {
                             fontSize: compact ? 13 : 14,
                           ),
                         ),
-                        if (!ultraCompact && inStock && product.stock <= 5)
+                        if (!ultraCompact && product.isPhysicalProduct && inStock && product.stock <= 5)
                           Padding(
                             padding: const EdgeInsets.only(top: 1),
                             child: Text(
@@ -235,9 +265,11 @@ class ProductCard extends StatelessWidget {
                           width: double.infinity,
                           height: compact ? 23 : 27,
                           child: ElevatedButton(
-                            onPressed: inStock ? onTap : null,
+                            onPressed: isAvailable ? onTap : null,
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: AppTheme.primaryOrange,
+                              backgroundColor: product.isService
+                                  ? const Color(0xFF9C27B0)
+                                  : AppTheme.primaryOrange,
                               disabledBackgroundColor: Colors.grey[300],
                               foregroundColor: Colors.white,
                               elevation: 0,
@@ -247,7 +279,7 @@ class ProductCard extends StatelessWidget {
                               ),
                             ),
                             child: Text(
-                              inStock ? 'View' : 'Out of Stock',
+                              isAvailable ? 'View' : 'Out of Stock',
                               style: TextStyle(
                                 fontSize: compact ? 10 : 11,
                                 fontWeight: FontWeight.bold,

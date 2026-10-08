@@ -31,6 +31,11 @@ class WebImageLoader {
       value = firstToken;
     }
 
+    // Upgrade http to https for mixed-content web security
+    if (value.startsWith('http://')) {
+      value = 'https://${value.substring(7)}';
+    }
+
     // Recover malformed values like "...jpgSpiderPlant" by cutting at the
     // first image extension when trailing junk is attached.
     final extensionMatch = RegExp(
@@ -50,6 +55,31 @@ class WebImageLoader {
     return value;
   }
 
+  static Widget _defaultPlaceholder({
+    double? width,
+    double? height,
+    Widget? customWidget,
+  }) {
+    if (customWidget != null) return customWidget;
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Center(
+        child: Icon(
+          Icons.image_outlined,
+          color: Colors.grey.shade400,
+          size: (width != null && height != null)
+              ? (width < height ? width * 0.35 : height * 0.35).clamp(18.0, 36.0)
+              : 28.0,
+        ),
+      ),
+    );
+  }
+
   static Uint8List? _decodeDataImage(String rawUrl) {
     final url = _sanitizeUrl(rawUrl);
     if (!url.startsWith('data:image')) return null;
@@ -66,7 +96,7 @@ class WebImageLoader {
 
   /// Loads an image with proper CORS handling for web
   /// Falls back to standard loading for mobile platforms
-  /// Returns error widget if imageUrl is null or empty
+  /// Returns graceful placeholder widget if imageUrl is null or empty
   static Widget loadImage({
     required String? imageUrl,
     double? width,
@@ -78,16 +108,22 @@ class WebImageLoader {
   }) {
     // Handle null or empty URLs
     if (imageUrl == null || imageUrl.trim().isEmpty) {
-      return errorWidget ??
-          Container(
-            width: width,
-            height: height,
-            color: Colors.grey[300],
-            child: const Icon(Icons.broken_image, color: Colors.grey),
-          );
+      return _defaultPlaceholder(
+        width: width,
+        height: height,
+        customWidget: errorWidget ?? placeholder,
+      );
     }
 
     final sanitizedImageUrl = _sanitizeUrl(imageUrl);
+    if (sanitizedImageUrl.isEmpty) {
+      return _defaultPlaceholder(
+        width: width,
+        height: height,
+        customWidget: errorWidget ?? placeholder,
+      );
+    }
+
     final decodedDataImage = _decodeDataImage(sanitizedImageUrl);
 
     if (decodedDataImage != null) {
@@ -100,13 +136,11 @@ class WebImageLoader {
         gaplessPlayback: true,
         filterQuality: FilterQuality.high,
         errorBuilder: (context, error, stackTrace) {
-          return errorWidget ??
-              Container(
-                width: width,
-                height: height,
-                color: Colors.grey[300],
-                child: const Icon(Icons.broken_image, color: Colors.grey),
-              );
+          return _defaultPlaceholder(
+            width: width,
+            height: height,
+            customWidget: errorWidget,
+          );
         },
       );
     }
@@ -114,7 +148,6 @@ class WebImageLoader {
     if (kIsWeb) {
       // For web, use Image.network with proper error handling
       return Image.network(
-        // Use the sanitized URL so malformed imports still render when possible.
         sanitizedImageUrl,
         width: width,
         height: height,
@@ -127,13 +160,11 @@ class WebImageLoader {
               ? '${sanitizedImageUrl.substring(0, 140)}...'
               : sanitizedImageUrl;
           debugPrint('Image load error (web): $error | url=$shortenedUrl');
-          return errorWidget ??
-              Container(
-                width: width,
-                height: height,
-                color: Colors.grey[300],
-                child: const Icon(Icons.broken_image, color: Colors.grey),
-              );
+          return _defaultPlaceholder(
+            width: width,
+            height: height,
+            customWidget: errorWidget,
+          );
         },
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) return child;
@@ -141,9 +172,10 @@ class WebImageLoader {
               Container(
                 width: width,
                 height: height,
-                color: Colors.grey[200],
+                color: const Color(0xFFF3F4F6),
                 child: Center(
                   child: CircularProgressIndicator(
+                    strokeWidth: 2,
                     value: loadingProgress.expectedTotalBytes != null
                         ? loadingProgress.cumulativeBytesLoaded /
                             loadingProgress.expectedTotalBytes!
@@ -155,8 +187,7 @@ class WebImageLoader {
       );
     }
 
-    // For native platforms, prefer Image.network so we avoid cache-manager
-    // startup work and the path_provider channel dependency.
+    // For native platforms, use Image.network
     return Image.network(
       sanitizedImageUrl,
       width: width,
@@ -167,16 +198,14 @@ class WebImageLoader {
       filterQuality: FilterQuality.high,
       errorBuilder: (context, error, stackTrace) {
         final shortenedUrl = sanitizedImageUrl.length > 140
-            ? '${sanitizedImageUrl.substring(0, 140)}...'
-            : sanitizedImageUrl;
+              ? '${sanitizedImageUrl.substring(0, 140)}...'
+              : sanitizedImageUrl;
         debugPrint('Image load error (native): $error | url=$shortenedUrl');
-        return errorWidget ??
-            Container(
-              width: width,
-              height: height,
-              color: Colors.grey[300],
-              child: const Icon(Icons.broken_image, color: Colors.grey),
-            );
+        return _defaultPlaceholder(
+          width: width,
+          height: height,
+          customWidget: errorWidget,
+        );
       },
       loadingBuilder: (context, child, loadingProgress) {
         if (loadingProgress == null) return child;
@@ -184,8 +213,10 @@ class WebImageLoader {
             Container(
               width: width,
               height: height,
-              color: Colors.grey[200],
-              child: const Center(child: CircularProgressIndicator()),
+              color: const Color(0xFFF3F4F6),
+              child: const Center(
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
             );
       },
     );

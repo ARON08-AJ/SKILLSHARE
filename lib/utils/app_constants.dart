@@ -29,6 +29,31 @@ class AppConstants {
   static const String requestStatusRejected = 'rejected';
   static const String requestStatusCompleted = 'completed';
 
+  // Listing / Product Types
+  static const String listingTypeProduct = 'product';
+  static const String listingTypeService = 'service';
+
+  // Service Workflow Stages
+  static const String serviceStatusRequested = 'requested';
+  static const String serviceStatusAccepted = 'accepted';
+  static const String serviceStatusRequirementGathering = 'requirement_gathering';
+  static const String serviceStatusProjectWork = 'project_work';
+  static const String serviceStatusTesting = 'testing';
+  static const String serviceStatusReview = 'review';
+  static const String serviceStatusFinished = 'finished';
+  static const String serviceStatusRejected = 'rejected';
+  static const String serviceStatusCancelled = 'cancelled';
+
+  /// Ordered service progression stages after acceptance
+  static const List<String> serviceProgressStages = [
+    serviceStatusAccepted,
+    serviceStatusRequirementGathering,
+    serviceStatusProjectWork,
+    serviceStatusTesting,
+    serviceStatusReview,
+    serviceStatusFinished,
+  ];
+
   // Collection Names
   static const String usersCollection = 'users';
   static const String skilledUsersCollection = 'skilled_users';

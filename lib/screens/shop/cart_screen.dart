@@ -139,15 +139,18 @@ class _CartScreenState extends State<CartScreen>
   Future<_CheckoutDetails?> _collectCheckoutDetails() async {
     if (_currentUserId == null) return null;
 
-    final profile = await _firestoreService.getCustomerProfile(_currentUserId!);
+    final addressSnapshot =
+        await _firestoreService.resolveUserAddressSnapshot(_currentUserId!);
     if (!mounted) return null;
 
-    final defaultAddress = (profile?.location ?? '').trim();
+    final defaultAddress =
+        (addressSnapshot['formattedAddress'] as String? ?? '').trim();
 
     return showDialog<_CheckoutDetails>(
       context: context,
       barrierDismissible: false,
-      builder: (ctx) => _CartDeliveryAddressDialog(savedAddress: defaultAddress),
+      builder: (ctx) =>
+          _CartDeliveryAddressDialog(savedAddress: defaultAddress),
     );
   }
 

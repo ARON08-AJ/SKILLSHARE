@@ -288,10 +288,10 @@ class ChatService {
   // Get or create chat between two users
   Future<String> getOrCreateChat(
     String user1Id,
-    String user2Id,
-    Map<String, dynamic> user1Details,
-    Map<String, dynamic> user2Details,
-  ) async {
+    String user2Id, [
+    Map<String, dynamic> user1Details = const {},
+    Map<String, dynamic> user2Details = const {},
+  ]) async {
     if (user1Id == user2Id) {
       throw Exception('You cannot start a chat with yourself.');
     }

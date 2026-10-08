@@ -2566,6 +2566,151 @@ class FirestoreService {
     return items.fold<int>(0, (totalItems, item) => totalItems + item.quantity);
   }
 
+  /// Resolves the latest full address and snapshot map for a user (customer or seller).
+  /// Checks users, customer_profiles, skilled_users, and company_profiles collections.
+  Future<Map<String, dynamic>> resolveUserAddressSnapshot(String userId) async {
+    String name = '';
+    String address = '';
+    String city = '';
+    String state = '';
+    String pincode = '';
+    double? latitude;
+    double? longitude;
+    String phone = '';
+
+    try {
+      // 1. Check users collection
+      final userDoc = await _firestore
+          .collection(AppConstants.usersCollection)
+          .doc(userId)
+          .get();
+      if (userDoc.exists && userDoc.data() != null) {
+        final data = userDoc.data()!;
+        name = (data['name'] ?? data['displayName'] ?? '').toString().trim();
+        phone = (data['phone'] ?? '').toString().trim();
+        final addr = (data['address'] ?? data['location'] ?? '').toString().trim();
+        if (addr.isNotEmpty) address = addr;
+        if (data['city'] != null) city = data['city'].toString().trim();
+        if (data['state'] != null) state = data['state'].toString().trim();
+        if (data['pincode'] != null) pincode = data['pincode'].toString().trim();
+      }
+
+      // 2. Check skilled_users profile
+      final skilledDoc = await _firestore
+          .collection(AppConstants.skilledUsersCollection)
+          .doc(userId)
+          .get();
+      if (skilledDoc.exists && skilledDoc.data() != null) {
+        final data = skilledDoc.data()!;
+        if (name.isEmpty && data['name'] != null) {
+          name = data['name'].toString().trim();
+        }
+        final skilledAddr =
+            (data['address'] ?? data['location'] ?? '').toString().trim();
+        if (skilledAddr.isNotEmpty &&
+            (address.isEmpty || skilledAddr.length >= address.length)) {
+          address = skilledAddr;
+        }
+        if (city.isEmpty && data['city'] != null) {
+          city = data['city'].toString().trim();
+        }
+        if (state.isEmpty && data['state'] != null) {
+          state = data['state'].toString().trim();
+        }
+        if (pincode.isEmpty && (data['pincode'] ?? data['postalCode']) != null) {
+          pincode = (data['pincode'] ?? data['postalCode']).toString().trim();
+        }
+        if (data['latitude'] != null) {
+          latitude = (data['latitude'] as num).toDouble();
+        }
+        if (data['longitude'] != null) {
+          longitude = (data['longitude'] as num).toDouble();
+        }
+      }
+
+      // 3. Check customer_profiles
+      final custDoc = await _firestore
+          .collection(AppConstants.customerProfilesCollection)
+          .doc(userId)
+          .get();
+      if (custDoc.exists && custDoc.data() != null) {
+        final data = custDoc.data()!;
+        final custAddr =
+            (data['address'] ?? data['location'] ?? '').toString().trim();
+        if (custAddr.isNotEmpty &&
+            (address.isEmpty || custAddr.length >= address.length)) {
+          address = custAddr;
+        }
+        if (city.isEmpty && data['city'] != null) {
+          city = data['city'].toString().trim();
+        }
+        if (state.isEmpty && data['state'] != null) {
+          state = data['state'].toString().trim();
+        }
+        if (pincode.isEmpty && (data['pincode'] ?? data['postalCode']) != null) {
+          pincode = (data['pincode'] ?? data['postalCode']).toString().trim();
+        }
+        if (latitude == null && data['latitude'] != null) {
+          latitude = (data['latitude'] as num).toDouble();
+        }
+        if (longitude == null && data['longitude'] != null) {
+          longitude = (data['longitude'] as num).toDouble();
+        }
+      }
+
+      // 4. Check company_profiles
+      final compDoc = await _firestore
+          .collection(AppConstants.companyProfilesCollection)
+          .doc(userId)
+          .get();
+      if (compDoc.exists && compDoc.data() != null) {
+        final data = compDoc.data()!;
+        final compAddr = (data['headOfficeLocation'] ??
+                data['address'] ??
+                data['location'] ??
+                '')
+            .toString()
+            .trim();
+        if (compAddr.isNotEmpty && address.isEmpty) {
+          address = compAddr;
+        }
+        if (city.isEmpty && data['city'] != null) {
+          city = data['city'].toString().trim();
+        }
+        if (state.isEmpty && data['state'] != null) {
+          state = data['state'].toString().trim();
+        }
+      }
+    } catch (e) {
+      debugPrint('Error resolving address snapshot for $userId: $e');
+    }
+
+    final components = <String>[];
+    if (address.isNotEmpty) components.add(address);
+    if (city.isNotEmpty && !address.toLowerCase().contains(city.toLowerCase())) {
+      components.add(city);
+    }
+    if (state.isNotEmpty && !address.toLowerCase().contains(state.toLowerCase())) {
+      components.add(state);
+    }
+    if (pincode.isNotEmpty && !address.contains(pincode)) {
+      components.add(pincode);
+    }
+    final fullFormatted = components.join(', ');
+
+    return {
+      'name': name,
+      'address': fullFormatted.isNotEmpty ? fullFormatted : address,
+      'rawAddress': address,
+      'city': city,
+      'state': state,
+      'pincode': pincode,
+      if (latitude != null) 'latitude': latitude,
+      if (longitude != null) 'longitude': longitude,
+      if (phone.isNotEmpty) 'phone': phone,
+    };
+  }
+
   Future<OrderModel> purchaseProductDirect({
     required String userId,
     required ProductModel product,
@@ -2575,6 +2720,9 @@ class FirestoreService {
     String? deliveryAddress,
     String? deliveryLocation,
   }) async {
+    if (product.isService) {
+      throw Exception('This listing is a service. Please submit a service request instead.');
+    }
     if (quantity <= 0) {
       throw Exception('Quantity must be at least 1.');
     }
@@ -2585,6 +2733,9 @@ class FirestoreService {
     final buyer = await getUserById(userId);
     final shopSettings = await getShopSettings(product.userId);
     final userSettings = await getUserSettings(product.userId);
+
+    final buyerSnapshot = await resolveUserAddressSnapshot(userId);
+    final sellerSnapshot = await resolveUserAddressSnapshot(product.userId);
 
     int parseMaxDeliveryQuantity(dynamic value) {
       if (value is int) return value;
@@ -2621,8 +2772,15 @@ class FirestoreService {
     final normalizedPaymentMethod =
         paymentMethod.trim().isEmpty ? 'gpay_simulation' : paymentMethod.trim();
     final normalizedReference = paymentReference?.trim();
-    final normalizedDeliveryAddress = deliveryAddress?.trim();
+
+    final normalizedDeliveryAddress = deliveryAddress?.trim().isNotEmpty == true
+        ? deliveryAddress!.trim()
+        : (buyerSnapshot['address'] as String?)?.trim();
     final normalizedDeliveryLocation = deliveryLocation?.trim();
+
+    if (normalizedDeliveryAddress != null && normalizedDeliveryAddress.isNotEmpty) {
+      buyerSnapshot['address'] = normalizedDeliveryAddress;
+    }
 
     final productRef =
         _firestore.collection(AppConstants.productsCollection).doc(product.id);
@@ -2655,6 +2813,10 @@ class FirestoreService {
       final remainingStock = latestProduct.stock - quantity;
       remainingStockToUpdate = remainingStock;
 
+      final sellerName = (sellerSnapshot['name'] as String?)?.trim().isNotEmpty == true
+          ? (sellerSnapshot['name'] as String).trim()
+          : (latestProduct.displayShopName ?? 'Skilled Seller');
+
       createdOrder = OrderModel(
         id: orderRef.id,
         buyerId: userId,
@@ -2667,7 +2829,7 @@ class FirestoreService {
         unitPrice: latestProduct.price,
         totalPrice: latestProduct.price * quantity,
         status: 'pending',
-        buyerName: buyer?.name,
+        buyerName: buyer?.name ?? buyerSnapshot['name'],
         buyerEmail: buyer?.email,
         paymentMethod: normalizedPaymentMethod,
         paymentStatus: 'paid',
@@ -2679,10 +2841,7 @@ class FirestoreService {
         sellerTransferStatus: 'credited_simulated',
         sellerTransferAt: now,
         statusTimeline: {'pending': now},
-        deliveryAddress: normalizedDeliveryAddress != null &&
-                normalizedDeliveryAddress.isNotEmpty
-            ? normalizedDeliveryAddress
-            : null,
+        deliveryAddress: normalizedDeliveryAddress,
         deliveryLocation: normalizedDeliveryLocation != null &&
                 normalizedDeliveryLocation.isNotEmpty
             ? normalizedDeliveryLocation
@@ -2690,6 +2849,11 @@ class FirestoreService {
         deliveryVerificationCode: deliveryCode,
         deliveryByPartner: deliveryByPartner,
         deliveryQuantityLimit: appliedMaxDeliveryQty,
+        productType: latestProduct.type,
+        sellerName: sellerName,
+        sellerAddress: sellerSnapshot['address'],
+        deliveryAddressSnapshot: buyerSnapshot,
+        pickupAddressSnapshot: sellerSnapshot,
         createdAt: now,
         updatedAt: now,
       );
@@ -2752,16 +2916,26 @@ class FirestoreService {
     }
 
     final buyer = await getUserById(userId);
+    final buyerSnapshot = await resolveUserAddressSnapshot(userId);
+
+    final normalizedPaymentMethod =
+        paymentMethod.trim().isEmpty ? 'gpay_simulation' : paymentMethod.trim();
+    final normalizedReference = paymentReference?.trim();
+    final normalizedDeliveryAddress = deliveryAddress?.trim().isNotEmpty == true
+        ? deliveryAddress!.trim()
+        : (buyerSnapshot['address'] as String?)?.trim();
+    final normalizedDeliveryLocation = deliveryLocation?.trim();
+
+    if (normalizedDeliveryAddress != null && normalizedDeliveryAddress.isNotEmpty) {
+      buyerSnapshot['address'] = normalizedDeliveryAddress;
+    }
+
     final batch = _firestore.batch();
     final createdOrders = <OrderModel>[];
     final now = DateTime.now();
     final sellerShopSettingsById = <String, Map<String, dynamic>>{};
     final sellerUserSettingsById = <String, Map<String, dynamic>>{};
-    final normalizedPaymentMethod =
-        paymentMethod.trim().isEmpty ? 'gpay_simulation' : paymentMethod.trim();
-    final normalizedReference = paymentReference?.trim();
-    final normalizedDeliveryAddress = deliveryAddress?.trim();
-    final normalizedDeliveryLocation = deliveryLocation?.trim();
+    final sellerSnapshotsById = <String, Map<String, dynamic>>{};
 
     int parseMaxDeliveryQuantity(dynamic value) {
       if (value is int) return value;
@@ -2807,8 +2981,15 @@ class FirestoreService {
         sellerUserSettingsById[latestProduct.userId] =
             await getUserSettings(latestProduct.userId);
       }
+      if (!sellerSnapshotsById.containsKey(latestProduct.userId)) {
+        sellerSnapshotsById[latestProduct.userId] =
+            await resolveUserAddressSnapshot(latestProduct.userId);
+      }
+
       final shopSettings = sellerShopSettingsById[latestProduct.userId]!;
       final userSettings = sellerUserSettingsById[latestProduct.userId]!;
+      final sellerSnapshot = sellerSnapshotsById[latestProduct.userId]!;
+
       final profileWorkflowEnabled =
           (userSettings['enableShopDeliveryWorkflow'] as bool?) ?? true;
       final allowDeliveryIfAvailable =
@@ -2825,6 +3006,11 @@ class FirestoreService {
       final orderRef =
           _firestore.collection(AppConstants.ordersCollection).doc();
       final totalPrice = latestProduct.price * item.quantity;
+
+      final sellerName = (sellerSnapshot['name'] as String?)?.trim().isNotEmpty == true
+          ? (sellerSnapshot['name'] as String).trim()
+          : (latestProduct.displayShopName ?? 'Skilled Seller');
+
       final order = OrderModel(
         id: orderRef.id,
         buyerId: userId,
@@ -2837,7 +3023,7 @@ class FirestoreService {
         unitPrice: latestProduct.price,
         totalPrice: totalPrice,
         status: 'pending',
-        buyerName: buyer?.name,
+        buyerName: buyer?.name ?? buyerSnapshot['name'],
         buyerEmail: buyer?.email,
         paymentMethod: normalizedPaymentMethod,
         paymentStatus: 'paid',
@@ -2849,10 +3035,7 @@ class FirestoreService {
         sellerTransferStatus: 'credited_simulated',
         sellerTransferAt: now,
         statusTimeline: {'pending': now},
-        deliveryAddress: normalizedDeliveryAddress != null &&
-                normalizedDeliveryAddress.isNotEmpty
-            ? normalizedDeliveryAddress
-            : null,
+        deliveryAddress: normalizedDeliveryAddress,
         deliveryLocation: normalizedDeliveryLocation != null &&
                 normalizedDeliveryLocation.isNotEmpty
             ? normalizedDeliveryLocation
@@ -2860,6 +3043,11 @@ class FirestoreService {
         deliveryVerificationCode: deliveryCode,
         deliveryByPartner: deliveryByPartner,
         deliveryQuantityLimit: appliedMaxDeliveryQty,
+        productType: latestProduct.type,
+        sellerName: sellerName,
+        sellerAddress: sellerSnapshot['address'],
+        deliveryAddressSnapshot: buyerSnapshot,
+        pickupAddressSnapshot: sellerSnapshot,
         createdAt: now,
         updatedAt: now,
       );
@@ -2917,6 +3105,330 @@ class FirestoreService {
     await Future.wait(notificationTasks);
 
     return createdOrders;
+  }
+
+  // ==========================================
+  // SERVICE WORKFLOW METHODS
+  // ==========================================
+
+  /// Creates a new customer request for a service listing.
+  /// Services do NOT require inventory stock or physical delivery.
+  Future<OrderModel> createServiceOrderRequest({
+    required String userId,
+    required ProductModel product,
+    String? notes,
+    String paymentMethod = 'gpay_simulation',
+    String? paymentReference,
+  }) async {
+    if (userId == product.userId) {
+      throw Exception('You cannot request your own service.');
+    }
+
+    final buyer = await getUserById(userId);
+    final buyerSnapshot = await resolveUserAddressSnapshot(userId);
+    final sellerSnapshot = await resolveUserAddressSnapshot(product.userId);
+
+    final normalizedPaymentMethod =
+        paymentMethod.trim().isEmpty ? 'gpay_simulation' : paymentMethod.trim();
+    final normalizedReference = paymentReference?.trim();
+
+    final orderRef = _firestore.collection(AppConstants.ordersCollection).doc();
+    final now = DateTime.now();
+
+    final sellerName = (sellerSnapshot['name'] as String?)?.trim().isNotEmpty == true
+        ? (sellerSnapshot['name'] as String).trim()
+        : (product.displayShopName ?? 'Skilled Person');
+
+    final order = OrderModel(
+      id: orderRef.id,
+      buyerId: userId,
+      sellerId: product.userId,
+      productId: product.id,
+      productName: product.name,
+      productImage:
+          product.images.isNotEmpty ? product.images.first : null,
+      quantity: 1,
+      unitPrice: product.price,
+      totalPrice: product.price,
+      status: AppConstants.serviceStatusRequested,
+      buyerName: buyer?.name ?? buyerSnapshot['name'],
+      buyerEmail: buyer?.email,
+      paymentMethod: normalizedPaymentMethod,
+      paymentStatus: 'paid',
+      paymentReference: normalizedReference,
+      paidAt: now,
+      sellerTransferStatus: 'credited_simulated',
+      sellerTransferAt: now,
+      notes: notes,
+      statusTimeline: {'requested': now},
+      createdAt: now,
+      updatedAt: now,
+      deliveryByPartner: false,
+      productType: AppConstants.listingTypeService,
+      sellerName: sellerName,
+      sellerAddress: sellerSnapshot['address'],
+      deliveryAddressSnapshot: buyerSnapshot,
+      pickupAddressSnapshot: sellerSnapshot,
+      serviceStatus: AppConstants.serviceStatusRequested,
+      serviceTimeline: [
+        {
+          'stage': AppConstants.serviceStatusRequested,
+          'status': 'completed',
+          'title': 'Request Submitted',
+          'description': 'Customer requested the service.',
+          'updatedAt': Timestamp.fromDate(now),
+        }
+      ],
+    );
+
+    await orderRef.set(order.toMap());
+
+    // Create notifications
+    await _createNotificationRecord(
+      toUserId: order.sellerId,
+      fromUserId: order.buyerId,
+      type: 'serviceRequestReceived',
+      title: 'New Service Request',
+      body:
+          '${order.buyerName ?? 'A customer'} requested your service "${order.productName}".',
+      orderId: order.id,
+      productId: order.productId,
+      productName: order.productName,
+      status: order.status,
+    );
+
+    await _createNotificationRecord(
+      toUserId: order.buyerId,
+      fromUserId: order.sellerId,
+      type: 'serviceRequestSubmitted',
+      title: 'Service Request Sent',
+      body: 'Your request for "${order.productName}" was sent to the skilled person.',
+      orderId: order.id,
+      productId: order.productId,
+      productName: order.productName,
+      status: order.status,
+    );
+
+    return order;
+  }
+
+  /// Skilled person accepts a service request.
+  /// Sets status to 'accepted', active stage to 'requirement_gathering', and initializes timeline.
+  Future<void> acceptServiceRequest(String orderId) async {
+    final ref =
+        _firestore.collection(AppConstants.ordersCollection).doc(orderId);
+    final snap = await ref.get();
+    if (!snap.exists) {
+      throw Exception('Service request not found.');
+    }
+    final data = snap.data() ?? {};
+    final currentStatus =
+        (data['serviceStatus'] ?? data['status'] ?? '').toString().trim();
+    if (currentStatus != AppConstants.serviceStatusRequested &&
+        currentStatus != 'pending') {
+      throw Exception('Only requested services can be accepted.');
+    }
+
+    final now = DateTime.now();
+    final List<dynamic> existingTimeline =
+        List.from(data['serviceTimeline'] ?? []);
+
+    existingTimeline.add({
+      'stage': AppConstants.serviceStatusAccepted,
+      'status': 'completed',
+      'title': 'Request Accepted',
+      'description': 'Skilled person accepted your service request.',
+      'updatedAt': Timestamp.fromDate(now),
+    });
+
+    existingTimeline.add({
+      'stage': AppConstants.serviceStatusRequirementGathering,
+      'status': 'current',
+      'title': 'Requirement Gathering',
+      'description': 'Discuss customer requirements and collect necessary details.',
+      'updatedAt': Timestamp.fromDate(now),
+    });
+
+    await ref.update({
+      'status': AppConstants.serviceStatusAccepted,
+      'serviceStatus': AppConstants.serviceStatusRequirementGathering,
+      'statusTimeline.accepted': FieldValue.serverTimestamp(),
+      'serviceTimeline': existingTimeline,
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    final buyerId = data['buyerId']?.toString();
+    final sellerId = data['sellerId']?.toString();
+    final productName = data['productName']?.toString() ?? 'Service';
+    if (buyerId != null) {
+      await _createNotificationRecord(
+        toUserId: buyerId,
+        fromUserId: sellerId ?? '',
+        type: 'serviceRequestAccepted',
+        title: 'Service Request Accepted',
+        body:
+            'Your service request for "$productName" has been accepted! Requirement gathering has started.',
+        orderId: orderId,
+        productName: productName,
+        status: AppConstants.serviceStatusAccepted,
+      );
+    }
+  }
+
+  /// Skilled person rejects a service request.
+  Future<void> rejectServiceRequest(String orderId, {String? reason}) async {
+    final ref =
+        _firestore.collection(AppConstants.ordersCollection).doc(orderId);
+    final snap = await ref.get();
+    if (!snap.exists) {
+      throw Exception('Service request not found.');
+    }
+    final data = snap.data() ?? {};
+    final now = DateTime.now();
+    final List<dynamic> existingTimeline =
+        List.from(data['serviceTimeline'] ?? []);
+
+    existingTimeline.add({
+      'stage': AppConstants.serviceStatusRejected,
+      'status': 'completed',
+      'title': 'Request Declined',
+      'description': reason != null && reason.trim().isNotEmpty
+          ? reason.trim()
+          : 'Skilled person was unable to accept this request.',
+      'updatedAt': Timestamp.fromDate(now),
+    });
+
+    await ref.update({
+      'status': AppConstants.serviceStatusRejected,
+      'serviceStatus': AppConstants.serviceStatusRejected,
+      'statusTimeline.rejected': FieldValue.serverTimestamp(),
+      'serviceTimeline': existingTimeline,
+      if (reason != null && reason.trim().isNotEmpty) 'rejectionReason': reason.trim(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+
+    final buyerId = data['buyerId']?.toString();
+    final sellerId = data['sellerId']?.toString();
+    final productName = data['productName']?.toString() ?? 'Service';
+    if (buyerId != null) {
+      await _createNotificationRecord(
+        toUserId: buyerId,
+        fromUserId: sellerId ?? '',
+        type: 'serviceRequestRejected',
+        title: 'Service Request Declined',
+        body: 'Your service request for "$productName" could not be accepted.',
+        orderId: orderId,
+        productName: productName,
+        status: AppConstants.serviceStatusRejected,
+      );
+    }
+  }
+
+  /// Skilled person advances the service stage according to strict sequential workflow:
+  /// requirement_gathering -> project_work -> testing -> review -> finished
+  Future<void> updateServiceStage(String orderId, String nextStage) async {
+    final ref =
+        _firestore.collection(AppConstants.ordersCollection).doc(orderId);
+    final snap = await ref.get();
+    if (!snap.exists) {
+      throw Exception('Service request not found.');
+    }
+    final data = snap.data() ?? {};
+    final currentStage = (data['serviceStatus'] ?? '').toString().trim();
+
+    // Validate sequential transitions
+    final validTransitions = <String, String>{
+      AppConstants.serviceStatusAccepted:
+          AppConstants.serviceStatusRequirementGathering,
+      AppConstants.serviceStatusRequirementGathering:
+          AppConstants.serviceStatusProjectWork,
+      AppConstants.serviceStatusProjectWork: AppConstants.serviceStatusTesting,
+      AppConstants.serviceStatusTesting: AppConstants.serviceStatusReview,
+      AppConstants.serviceStatusReview: AppConstants.serviceStatusFinished,
+    };
+
+    if (validTransitions[currentStage] != nextStage) {
+      throw Exception(
+        'Invalid stage transition from "$currentStage" to "$nextStage". '
+        'Stages cannot be skipped.',
+      );
+    }
+
+    final now = DateTime.now();
+    final List<dynamic> existingTimeline =
+        List.from(data['serviceTimeline'] ?? []);
+
+    // Mark previous current stage as completed
+    for (int i = 0; i < existingTimeline.length; i++) {
+      if (existingTimeline[i] is Map &&
+          existingTimeline[i]['status'] == 'current') {
+        existingTimeline[i] = Map<String, dynamic>.from(existingTimeline[i])
+          ..['status'] = 'completed';
+      }
+    }
+
+    String title = '';
+    String description = '';
+    switch (nextStage) {
+      case AppConstants.serviceStatusProjectWork:
+        title = 'Project Work';
+        description = 'Skilled person is working on the requested service.';
+        break;
+      case AppConstants.serviceStatusTesting:
+        title = 'Testing';
+        description = 'Verifying and testing the completed work.';
+        break;
+      case AppConstants.serviceStatusReview:
+        title = 'Review';
+        description = 'Customer reviews the completed service.';
+        break;
+      case AppConstants.serviceStatusFinished:
+        title = 'Finished';
+        description = 'Service is completed successfully.';
+        break;
+      default:
+        title = nextStage;
+        description = 'Service progressed to $nextStage.';
+    }
+
+    existingTimeline.add({
+      'stage': nextStage,
+      'status': nextStage == AppConstants.serviceStatusFinished
+          ? 'completed'
+          : 'current',
+      'title': title,
+      'description': description,
+      'updatedAt': Timestamp.fromDate(now),
+    });
+
+    final updatePayload = <String, dynamic>{
+      'serviceStatus': nextStage,
+      'statusTimeline.$nextStage': FieldValue.serverTimestamp(),
+      'serviceTimeline': existingTimeline,
+      'updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (nextStage == AppConstants.serviceStatusFinished) {
+      updatePayload['status'] = 'delivered'; // Matches completed order status in system
+    }
+
+    await ref.update(updatePayload);
+
+    final buyerId = data['buyerId']?.toString();
+    final sellerId = data['sellerId']?.toString();
+    final productName = data['productName']?.toString() ?? 'Service';
+    if (buyerId != null) {
+      await _createNotificationRecord(
+        toUserId: buyerId,
+        fromUserId: sellerId ?? '',
+        type: 'serviceStageUpdated',
+        title: 'Service Progress: $title',
+        body: 'Your service "$productName" is now at stage: $title.',
+        orderId: orderId,
+        productName: productName,
+        status: nextStage,
+      );
+    }
   }
 
   Stream<List<OrderModel>> streamSellerOrders(String sellerId) {
@@ -3086,6 +3598,7 @@ class FirestoreService {
         .map((snapshot) {
       final orders = snapshot.docs
           .map((doc) => OrderModel.fromMap(doc.data(), doc.id))
+          .where((o) => o.isPhysicalProduct)
           .toList();
       orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return orders;
@@ -3103,7 +3616,8 @@ class FirestoreService {
       final orders = snapshot.docs
           .map((doc) => OrderModel.fromMap(doc.data(), doc.id))
           .where((o) =>
-              o.deliveryPartnerId == null || o.deliveryPartnerId!.isEmpty)
+              o.isPhysicalProduct &&
+              (o.deliveryPartnerId == null || o.deliveryPartnerId!.isEmpty))
           .toList();
       orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return orders;

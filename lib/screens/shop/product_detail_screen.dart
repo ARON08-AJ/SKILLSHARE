@@ -16,6 +16,7 @@ import '../chat/chat_detail_screen.dart';
 import '../../widgets/gpay_simulation_dialog.dart';
 import 'shop_storefront_screen.dart';
 import 'cart_screen.dart';
+import 'order_tracking_screen.dart';
 import '../../models/cart_item_model.dart';
 import '../../utils/app_dialog.dart';
 
@@ -324,16 +325,193 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
   }
 
   Future<_CheckoutDetails?> _collectCheckoutDetails(String userId) async {
-    final profile = await _firestoreService.getCustomerProfile(userId);
+    final addressSnapshot =
+        await _firestoreService.resolveUserAddressSnapshot(userId);
     if (!mounted) return null;
 
-    final defaultAddress = (profile?.location ?? '').trim();
+    final defaultAddress =
+        (addressSnapshot['formattedAddress'] as String? ?? '').trim();
 
     return showDialog<_CheckoutDetails>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => _DeliveryAddressDialog(savedAddress: defaultAddress),
     );
+  }
+
+  Future<void> _requestService() async {
+    final currentUser = FirebaseAuth.instance.currentUser;
+    if (currentUser == null) {
+      AppPopup.show(
+        context,
+        message: 'Please sign in to request this service',
+        type: PopupType.warning,
+      );
+      return;
+    }
+    if (currentUser.uid == widget.product.userId) {
+      AppPopup.show(
+        context,
+        message: 'You cannot request your own service',
+        type: PopupType.info,
+      );
+      return;
+    }
+
+    final notesController = TextEditingController();
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF9C27B0).withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.handshake_outlined,
+                  color: Color(0xFF9C27B0)),
+            ),
+            const SizedBox(width: 12),
+            const Expanded(
+              child: Text(
+                'Request Service',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                widget.product.name,
+                style: const TextStyle(
+                  fontWeight: FontWeight.bold,
+                  fontSize: 16,
+                  color: AppTheme.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Service Fee: ${AppHelpers.formatCurrency(widget.product.price)}',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                  color: Color(0xFFE91E63),
+                ),
+              ),
+              if (_seller != null) ...[
+                const SizedBox(height: 2),
+                Text(
+                  'Skilled Person: ${_seller!.name}',
+                  style: TextStyle(color: Colors.grey[700], fontSize: 13),
+                ),
+              ],
+              const SizedBox(height: 14),
+              const Text(
+                'Project Requirements & Notes:',
+                style: TextStyle(fontWeight: FontWeight.w600, fontSize: 13),
+              ),
+              const SizedBox(height: 6),
+              TextField(
+                controller: notesController,
+                maxLines: 4,
+                decoration: InputDecoration(
+                  hintText:
+                      'Describe your requirements, goals, deadline expectations, and any specifics...',
+                  hintStyle: const TextStyle(fontSize: 12),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3E5F5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  children: [
+                    Icon(Icons.info_outline,
+                        size: 16, color: Color(0xFF7B1FA2)),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'The skilled person will review your request. Once accepted, requirement gathering and project milestones will begin.',
+                        style: TextStyle(
+                          fontSize: 11,
+                          color: Color(0xFF4A148C),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF9C27B0),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
+              ),
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Submit Request'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      final order = await _firestoreService.createServiceOrderRequest(
+        userId: currentUser.uid,
+        product: widget.product,
+        notes: notesController.text.trim(),
+      );
+
+      if (!mounted) return;
+      await AppDialog.success(
+        context,
+        'Your service request for "${widget.product.name}" has been sent!\n\n'
+        'The skilled person has been notified and will review your request shortly.',
+        title: 'Request Sent',
+        buttonText: 'View Request Status',
+        onDismiss: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => OrderTrackingScreen(order: order),
+            ),
+          );
+        },
+      );
+    } catch (e) {
+      if (mounted) {
+        AppPopup.show(
+          context,
+          message: 'Error submitting service request: $e',
+          type: PopupType.error,
+        );
+      }
+    }
   }
 
   void _viewFullscreenImage(int initialIndex) {
@@ -713,44 +891,74 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
         ),
         const SizedBox(height: 6),
 
-        // Stock status
-        Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-              decoration: BoxDecoration(
-                color: inStock
-                    ? AppTheme.accentGreen.withValues(alpha: 0.1)
-                    : Colors.red.withValues(alpha: 0.1),
-                borderRadius: BorderRadius.circular(6),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(inStock ? Icons.check_circle : Icons.cancel,
-                      color: inStock ? AppTheme.accentGreen : Colors.red,
-                      size: 14),
-                  const SizedBox(width: 4),
-                  Text(
-                    inStock ? 'In Stock' : 'Out of Stock',
-                    style: TextStyle(
-                        color: inStock ? Colors.green[700] : Colors.red,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
+        // Stock or Service status
+        if (product.isService) ...[
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+            decoration: BoxDecoration(
+              color: const Color(0xFF9C27B0).withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(6),
+              border: Border.all(
+                  color: const Color(0xFF9C27B0).withValues(alpha: 0.3)),
             ),
-            if (inStock && product.stock <= 10) ...[
-              const SizedBox(width: 8),
-              Text('${product.stock} left',
+            child: const Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.design_services,
+                    color: Color(0xFF9C27B0), size: 14),
+                SizedBox(width: 5),
+                Text(
+                  'Skilled Service',
                   style: TextStyle(
-                      fontSize: 12,
-                      color:
-                          product.stock <= 3 ? Colors.red : Colors.grey[600])),
+                    color: Color(0xFF9C27B0),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ] else ...[
+          Row(
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                decoration: BoxDecoration(
+                  color: inStock
+                      ? AppTheme.accentGreen.withValues(alpha: 0.1)
+                      : Colors.red.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(inStock ? Icons.check_circle : Icons.cancel,
+                        color: inStock ? AppTheme.accentGreen : Colors.red,
+                        size: 14),
+                    const SizedBox(width: 4),
+                    Text(
+                      inStock ? 'In Stock' : 'Out of Stock',
+                      style: TextStyle(
+                          color: inStock ? Colors.green[700] : Colors.red,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600),
+                    ),
+                  ],
+                ),
+              ),
+              if (inStock && product.stock <= 10) ...[
+                const SizedBox(width: 8),
+                Text('${product.stock} left',
+                    style: TextStyle(
+                        fontSize: 12,
+                        color: product.stock <= 3
+                            ? Colors.red
+                            : Colors.grey[600])),
+              ],
             ],
-          ],
-        ),
+          ),
+        ],
         const SizedBox(height: 6),
 
         // Category chip
@@ -771,8 +979,8 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
         const SizedBox(height: 16),
 
-        // ── Quantity selector ──
-        if (!_isOwner && inStock) ...[
+        // ── Quantity selector (Only for physical products) ──
+        if (!_isOwner && product.isPhysicalProduct && inStock) ...[
           Row(
             children: [
               const Text('Qty:',
@@ -801,98 +1009,129 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
 
         // ── Action Buttons ──
         if (!_isOwner) ...[
-          // Add to Cart
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton.icon(
-              onPressed: inStock ? _addToCart : null,
-              icon: const Icon(Icons.add_shopping_cart_rounded, size: 20),
-              label: Text(
-                inStock ? 'Add to Cart' : 'Out of Stock',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  height: 1.1,
+          if (product.isService) ...[
+            // Request Service button
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: _requestService,
+                icon: const Icon(Icons.assignment_turned_in_outlined,
+                    size: 20),
+                label: const Text(
+                  'Request Service',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    height: 1.1,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF9C27B0),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
                 ),
               ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryOrange,
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: Colors.grey[300],
-                disabledForegroundColor: Colors.grey[500],
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
+            ),
+            const SizedBox(height: 10),
+          ] else ...[
+            // Add to Cart
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: inStock ? _addToCart : null,
+                icon: const Icon(Icons.add_shopping_cart_rounded, size: 20),
+                label: Text(
+                  inStock ? 'Add to Cart' : 'Out of Stock',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    height: 1.1,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryOrange,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: Colors.grey[300],
+                  disabledForegroundColor: Colors.grey[500],
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 10),
+            const SizedBox(height: 10),
 
-          // Buy Now (GPay)
-          SizedBox(
-            width: double.infinity,
-            height: 52,
-            child: ElevatedButton.icon(
-              onPressed: inStock ? _buyNow : null,
-              icon: const Icon(Icons.bolt_rounded, size: 20),
-              label: const Text(
-                'Buy Now',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  height: 1.1,
+            // Buy Now (GPay)
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: ElevatedButton.icon(
+                onPressed: inStock ? _buyNow : null,
+                icon: const Icon(Icons.bolt_rounded, size: 20),
+                label: const Text(
+                  'Buy Now',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    height: 1.1,
+                  ),
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppTheme.primaryPink,
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: Colors.grey[300],
+                  disabledForegroundColor: Colors.grey[500],
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
                 ),
               ),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryPink,
-                foregroundColor: Colors.white,
-                disabledBackgroundColor: Colors.grey[300],
-                disabledForegroundColor: Colors.grey[500],
-                elevation: 0,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-              ),
             ),
-          ),
-          const SizedBox(height: 10),
+            const SizedBox(height: 10),
 
-          // View Cart
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: OutlinedButton.icon(
-              onPressed: () {
-                final uid = FirebaseAuth.instance.currentUser?.uid;
-                if (uid == null) {
-                  AppPopup.show(context,
-                      message: 'Please sign in to view your cart',
-                      type: PopupType.info);
-                } else {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (_) => const CartScreen()),
-                  );
-                }
-              },
-              icon: const Icon(Icons.shopping_cart_rounded,
-                  size: 20, color: AppTheme.primaryOrange),
-              label: const Text(
-                'View My Cart 🛒',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: AppTheme.primaryOrange,
+            // View Cart
+            SizedBox(
+              width: double.infinity,
+              height: 50,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  final uid = FirebaseAuth.instance.currentUser?.uid;
+                  if (uid == null) {
+                    AppPopup.show(context,
+                        message: 'Please sign in to view your cart',
+                        type: PopupType.info);
+                  } else {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(builder: (_) => const CartScreen()),
+                    );
+                  }
+                },
+                icon: const Icon(Icons.shopping_cart_rounded,
+                    size: 20, color: AppTheme.primaryOrange),
+                label: const Text(
+                  'View My Cart 🛒',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.primaryOrange,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: const BorderSide(
+                      color: AppTheme.primaryOrange, width: 2),
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(10)),
                 ),
               ),
-              style: OutlinedButton.styleFrom(
-                side: const BorderSide(color: AppTheme.primaryOrange, width: 2),
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(10)),
-              ),
             ),
-          ),
-          const SizedBox(height: 10),
+            const SizedBox(height: 10),
+          ],
+        ],
 
           // Chat with Seller
           SizedBox(
@@ -919,8 +1158,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
             ),
           ),
         ],
-      ],
-    );
+      );
   }
 
   Widget _buildQtyButton(IconData icon, VoidCallback onTap) {

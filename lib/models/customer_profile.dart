@@ -10,8 +10,10 @@ class CustomerProfile {
   final List<String> lookingFor; // Service categories they need (e.g., "Carpenter", "Baker", "Electrician")
   final String? profilePicture;
   final String? location;
+  final String? address;
   final String? city;
   final String? state;
+  final String? pincode;
   final double? latitude;
   final double? longitude;
   final List<String> preferredCategories; // Skill categories they frequently search for
@@ -34,8 +36,10 @@ class CustomerProfile {
     this.lookingFor = const [],
     this.profilePicture,
     this.location,
+    this.address,
     this.city,
     this.state,
+    this.pincode,
     this.latitude,
     this.longitude,
     this.preferredCategories = const [],
@@ -49,15 +53,21 @@ class CustomerProfile {
   });
 
   factory CustomerProfile.fromMap(Map<String, dynamic> map, String userId) {
+    final rawAddress = (map['address'] ?? map['location'] as String?)?.toString().trim();
+    final rawLocation = (map['location'] ?? map['address'] as String?)?.toString().trim();
+    final rawPincode = (map['pincode'] ?? map['postalCode'] ?? map['zip'] as String?)?.toString().trim();
+
     return CustomerProfile(
       userId: userId,
       bio: map['bio'] ?? '',
       interests: List<String>.from(map['interests'] ?? []),
       lookingFor: List<String>.from(map['lookingFor'] ?? []),
       profilePicture: map['profilePicture'],
-      location: map['location'],
+      location: (rawLocation != null && rawLocation.isNotEmpty) ? rawLocation : null,
+      address: (rawAddress != null && rawAddress.isNotEmpty) ? rawAddress : null,
       city: map['city'],
       state: map['state'],
+      pincode: (rawPincode != null && rawPincode.isNotEmpty) ? rawPincode : null,
       latitude: map['latitude']?.toDouble(),
       longitude: map['longitude']?.toDouble(),
       preferredCategories: List<String>.from(map['preferredCategories'] ?? []),
@@ -83,9 +93,11 @@ class CustomerProfile {
       'interests': interests,
       'lookingFor': lookingFor,
       if (profilePicture != null) 'profilePicture': profilePicture,
-      'location': location,
+      'location': location ?? address,
+      if (address != null) 'address': address,
       'city': city,
       'state': state,
+      if (pincode != null) 'pincode': pincode,
       'latitude': latitude,
       'longitude': longitude,
       'preferredCategories': preferredCategories,
@@ -105,8 +117,10 @@ class CustomerProfile {
     List<String>? lookingFor,
     String? profilePicture,
     String? location,
+    String? address,
     String? city,
     String? state,
+    String? pincode,
     double? latitude,
     double? longitude,
     List<String>? preferredCategories,
@@ -125,8 +139,10 @@ class CustomerProfile {
       lookingFor: lookingFor ?? this.lookingFor,
       profilePicture: profilePicture ?? this.profilePicture,
       location: location ?? this.location,
+      address: address ?? this.address,
       city: city ?? this.city,
       state: state ?? this.state,
+      pincode: pincode ?? this.pincode,
       latitude: latitude ?? this.latitude,
       longitude: longitude ?? this.longitude,
       preferredCategories: preferredCategories ?? this.preferredCategories,

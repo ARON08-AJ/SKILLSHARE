@@ -13,6 +13,9 @@ import '../profile/settings_screen.dart';
 import '../shop/add_product_screen.dart';
 import '../shop/product_detail_screen.dart';
 import '../shop/order_tracking_screen.dart';
+import '../chat/chat_detail_screen.dart';
+import '../../services/chat_service.dart';
+import '../../utils/app_constants.dart';
 import '../../utils/app_helpers.dart';
 
 /// My Shop Screen - For Skilled Persons Only
@@ -260,16 +263,57 @@ class _MyShopScreenState extends State<MyShopScreen>
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const SizedBox(height: 4),
-            Text('₹${product.price.toStringAsFixed(2)}'),
-            const SizedBox(height: 2),
-            Text(
-              'Stock: ${product.stock}',
-              style: TextStyle(
-                color: product.stock > 0 ? Colors.green : Colors.red,
-                fontSize: 12,
-              ),
+            const SizedBox(height: 5),
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: product.isService
+                        ? const Color(0xFF9C27B0).withValues(alpha: 0.12)
+                        : const Color(0xFFE91E63).withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: product.isService
+                          ? const Color(0xFF9C27B0).withValues(alpha: 0.3)
+                          : const Color(0xFFE91E63).withValues(alpha: 0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    product.isService ? 'Service' : 'Product',
+                    style: TextStyle(
+                      color: product.isService
+                          ? const Color(0xFF9C27B0)
+                          : const Color(0xFFE91E63),
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  '₹${product.price.toStringAsFixed(2)}',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    fontSize: 13,
+                    color: Color(0xFF37474F),
+                  ),
+                ),
+              ],
             ),
+            if (product.isPhysicalProduct) ...[
+              const SizedBox(height: 4),
+              Text(
+                'Stock: ${product.stock}',
+                style: TextStyle(
+                  color: product.stock > 0 ? Colors.green[700] : Colors.red,
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ],
         ),
         trailing: Row(
@@ -336,6 +380,10 @@ class _MyShopScreenState extends State<MyShopScreen>
   }
 
   Widget _buildOrderCard(OrderModel order) {
+    if (order.isService) {
+      return _buildServiceOrderCard(order);
+    }
+
     final statusColors = {
       'pending': Colors.orange,
       'confirmed': Colors.blue,
@@ -358,9 +406,31 @@ class _MyShopScreenState extends State<MyShopScreen>
             Row(
               children: [
                 Expanded(
-                  child: Text(order.productName,
-                      style: const TextStyle(
-                          fontWeight: FontWeight.bold, fontSize: 16)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(order.productName,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.bold, fontSize: 16)),
+                      const SizedBox(height: 2),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFE91E63).withValues(alpha: 0.1),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'PHYSICAL PRODUCT',
+                          style: TextStyle(
+                            color: Color(0xFFE91E63),
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
                 Container(
                   padding:
@@ -470,7 +540,336 @@ class _MyShopScreenState extends State<MyShopScreen>
     );
   }
 
+  Widget _buildServiceOrderCard(OrderModel order) {
+    final stage = order.serviceStatus ?? AppConstants.serviceStatusRequested;
+    final isRequested = stage == AppConstants.serviceStatusRequested ||
+        (order.status == 'pending' && order.serviceStatus == null);
+    final isRejected = stage == AppConstants.serviceStatusRejected ||
+        order.status == 'cancelled';
+    final isFinished = stage == AppConstants.serviceStatusFinished ||
+        order.status == 'delivered';
+
+    Color stageColor;
+    String stageLabel;
+    switch (stage) {
+      case AppConstants.serviceStatusRequested:
+        stageColor = Colors.orange;
+        stageLabel = 'REQUESTED';
+        break;
+      case AppConstants.serviceStatusAccepted:
+        stageColor = Colors.blue;
+        stageLabel = 'ACCEPTED';
+        break;
+      case AppConstants.serviceStatusRequirementGathering:
+        stageColor = const Color(0xFF3F51B5);
+        stageLabel = 'REQUIREMENT GATHERING';
+        break;
+      case AppConstants.serviceStatusProjectWork:
+        stageColor = const Color(0xFF9C27B0);
+        stageLabel = 'PROJECT WORK';
+        break;
+      case AppConstants.serviceStatusTesting:
+        stageColor = const Color(0xFF009688);
+        stageLabel = 'TESTING';
+        break;
+      case AppConstants.serviceStatusReview:
+        stageColor = const Color(0xFFFF9800);
+        stageLabel = 'REVIEW';
+        break;
+      case AppConstants.serviceStatusFinished:
+        stageColor = Colors.green;
+        stageLabel = 'FINISHED';
+        break;
+      case AppConstants.serviceStatusRejected:
+        stageColor = Colors.red;
+        stageLabel = 'REJECTED';
+        break;
+      default:
+        stageColor = Colors.grey;
+        stageLabel = stage.replaceAll('_', ' ').toUpperCase();
+    }
+
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      elevation: 2,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(color: stageColor.withValues(alpha: 0.3)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        order.productName,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.bold,
+                          fontSize: 16,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF9C27B0).withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Text(
+                          'SERVICE',
+                          style: TextStyle(
+                            color: Color(0xFF9C27B0),
+                            fontSize: 10,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: stageColor.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: stageColor),
+                  ),
+                  child: Text(
+                    stageLabel,
+                    style: TextStyle(
+                      color: stageColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Rate: Rs ${order.totalPrice.toStringAsFixed(2)}',
+              style: const TextStyle(
+                fontWeight: FontWeight.w600,
+                fontSize: 13,
+                color: Color(0xFF37474F),
+              ),
+            ),
+            if (order.buyerName != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                'Client: ${order.buyerName}',
+                style: const TextStyle(color: Colors.grey, fontSize: 12),
+              ),
+            ],
+            const SizedBox(height: 2),
+            Text(
+              'Requested on: ${AppHelpers.formatDateTime(order.createdAt)}',
+              style: const TextStyle(color: Colors.grey, fontSize: 11),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (isRequested) ...[
+                  TextButton(
+                    onPressed: () => _rejectServiceRequest(order),
+                    style: TextButton.styleFrom(foregroundColor: Colors.red),
+                    child: const Text('Decline'),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => _acceptServiceRequest(order),
+                    icon: const Icon(Icons.check, size: 16),
+                    label: const Text('Accept Request'),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2E7D32),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                    ),
+                  ),
+                ] else if (!isRejected) ...[
+                  OutlinedButton.icon(
+                    onPressed: () => _openChatWithBuyer(order),
+                    icon: const Icon(Icons.chat_outlined, size: 16),
+                    label: const Text('Open Chat'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF9C27B0),
+                      side: const BorderSide(color: Color(0xFF9C27B0)),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  ElevatedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => OrderTrackingScreen(order: order),
+                      ),
+                    ),
+                    icon: const Icon(Icons.timeline, size: 16),
+                    label: Text(
+                      isFinished ? 'View Timeline' : 'Update Stage',
+                    ),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: isFinished
+                          ? Colors.green
+                          : const Color(0xFFE91E63),
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openChatWithBuyer(OrderModel order) async {
+    final currentUserId = FirebaseAuth.instance.currentUser?.uid;
+    if (currentUserId == null) return;
+    try {
+      final chatId = await ChatService().getOrCreateChat(
+        currentUserId,
+        order.buyerId,
+      );
+      if (!mounted) return;
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => ChatDetailScreen(
+            chatId: chatId,
+            otherUserId: order.buyerId,
+            otherUserName: order.buyerName ?? 'Customer',
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        AppDialog.error(context, 'Could not open chat', detail: e.toString());
+      }
+    }
+  }
+
+  Future<void> _acceptServiceRequest(OrderModel order) async {
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Accept Service Request'),
+        content: Text(
+          'Accept service request for "${order.productName}"?\n\n'
+          'This will initiate the project timeline and begin the "Requirement Gathering" stage.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFF2E7D32),
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Accept'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    try {
+      await _firestoreService.acceptServiceRequest(order.id);
+      if (mounted) {
+        AppDialog.success(
+          context,
+          'Service request accepted!\nYou can now coordinate with the customer and proceed with Requirement Gathering.',
+          title: 'Request Accepted',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        AppDialog.error(context, 'Failed to accept service request',
+            detail: e.toString());
+      }
+    }
+  }
+
+  Future<void> _rejectServiceRequest(OrderModel order) async {
+    final reasonController = TextEditingController();
+    final confirm = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Decline Service Request'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Are you sure you want to decline this request for "${order.productName}"?'),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              decoration: const InputDecoration(
+                labelText: 'Reason (optional)',
+                border: OutlineInputBorder(),
+              ),
+              maxLines: 2,
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Back'),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Decline'),
+          ),
+        ],
+      ),
+    );
+    if (confirm != true) return;
+
+    try {
+      await _firestoreService.rejectServiceRequest(
+        order.id,
+        reason: reasonController.text.trim(),
+      );
+      if (mounted) {
+        AppDialog.info(context, 'Service request declined.');
+      }
+    } catch (e) {
+      if (mounted) {
+        AppDialog.error(context, 'Failed to decline request',
+            detail: e.toString());
+      }
+    }
+  }
+
   Widget _buildOrderAddress(OrderModel order) {
+    final snapshotAddr =
+        (order.deliveryAddressSnapshot?['address'] as String?)?.trim();
+    if (snapshotAddr != null && snapshotAddr.isNotEmpty) {
+      return Text(
+        'Address: $snapshotAddr',
+        style: const TextStyle(color: Colors.grey, fontSize: 12),
+      );
+    }
+
     final directAddress =
         order.deliveryAddress?.trim() ?? order.deliveryLocation?.trim();
     if (directAddress != null && directAddress.isNotEmpty) {
@@ -484,7 +883,9 @@ class _MyShopScreenState extends State<MyShopScreen>
       future: _firestoreService.getCustomerProfile(order.buyerId),
       builder: (context, snapshot) {
         final profile = snapshot.data;
-        final loc = profile?.location?.trim();
+        final loc = profile?.address?.trim().isNotEmpty == true
+            ? profile!.address!.trim()
+            : profile?.location?.trim();
         final city = profile?.city?.trim();
         String display;
         if (loc != null && loc.isNotEmpty) {

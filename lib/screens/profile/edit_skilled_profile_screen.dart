@@ -388,7 +388,6 @@ class _ServiceDialog extends StatefulWidget {
   final ValueChanged<ServiceModel> onSaved;
 
   const _ServiceDialog({
-    super.key,
     this.existing,
     required this.category,
     required this.onSaved,
