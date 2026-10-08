@@ -5135,9 +5135,13 @@ class FirestoreService {
 
     final pending = snapshot.docs
         .map((doc) => SkilledUserProfile.fromMap(doc.data(), doc.id))
-        .where((p) =>
-            p.verificationStatus.toLowerCase().trim() ==
-            AppConstants.verificationPending)
+        .where((p) {
+          final s = p.verificationStatus.toLowerCase().trim();
+          return !p.isVerified &&
+              (s == AppConstants.verificationPending ||
+                  s == AppConstants.verificationSubmitted ||
+                  s == 'submitted');
+        })
         .toList();
 
     pending.sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -5152,9 +5156,13 @@ class FirestoreService {
         .map((snapshot) {
       final pending = snapshot.docs
           .map((doc) => SkilledUserProfile.fromMap(doc.data(), doc.id))
-          .where((p) =>
-              p.verificationStatus.toLowerCase().trim() ==
-              AppConstants.verificationPending)
+          .where((p) {
+            final s = p.verificationStatus.toLowerCase().trim();
+            return !p.isVerified &&
+                (s == AppConstants.verificationPending ||
+                    s == AppConstants.verificationSubmitted ||
+                    s == 'submitted');
+          })
           .toList();
 
       pending.sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -5163,29 +5171,103 @@ class FirestoreService {
   }
 
   Future<void> approveVerification(String userId) async {
-    await _firestore
+    final batch = _firestore.batch();
+
+    // 1. Update /skilled_users/{userId}
+    final skilledDoc = _firestore
         .collection(AppConstants.skilledUsersCollection)
-        .doc(userId)
-        .update({
+        .doc(userId);
+    batch.set(skilledDoc, {
       'verificationStatus': AppConstants.verificationApproved,
       'visibility': AppConstants.visibilityPublic,
       'isVerified': true,
       'verifiedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
+
+    // 2. Update /users/{userId}
+    final userDoc = _firestore
+        .collection(AppConstants.usersCollection)
+        .doc(userId);
+    batch.set(userDoc, {
+      'isVerified': true,
+      'verificationStatus': AppConstants.verificationApproved,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await batch.commit();
+
+    // Secondary check: if there is a skilled_users document with non-matching doc ID but matching userId field
+    try {
+      final query = await _firestore
+          .collection(AppConstants.skilledUsersCollection)
+          .where('userId', isEqualTo: userId)
+          .limit(5)
+          .get();
+      for (final doc in query.docs) {
+        if (doc.id != userId) {
+          await doc.reference.set({
+            'verificationStatus': AppConstants.verificationApproved,
+            'visibility': AppConstants.visibilityPublic,
+            'isVerified': true,
+            'verifiedAt': FieldValue.serverTimestamp(),
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+      }
+    } catch (e) {
+      debugPrint('approveVerification secondary sync error: $e');
+    }
   }
 
-  Future<void> rejectVerification(String userId, String reason) async {
-    await _firestore
+  Future<void> rejectVerification(String userId,
+      {String reason = 'Verification details did not meet platform criteria.'}) async {
+    final batch = _firestore.batch();
+
+    // 1. Update /skilled_users/{userId}
+    final skilledDoc = _firestore
         .collection(AppConstants.skilledUsersCollection)
-        .doc(userId)
-        .update({
+        .doc(userId);
+    batch.set(skilledDoc, {
       'verificationStatus': AppConstants.verificationRejected,
       'rejectionReason': reason,
       'visibility': AppConstants.visibilityPrivate,
       'isVerified': false,
       'updatedAt': FieldValue.serverTimestamp(),
-    });
+    }, SetOptions(merge: true));
+
+    // 2. Update /users/{userId}
+    final userDoc = _firestore
+        .collection(AppConstants.usersCollection)
+        .doc(userId);
+    batch.set(userDoc, {
+      'isVerified': false,
+      'verificationStatus': AppConstants.verificationRejected,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    await batch.commit();
+
+    try {
+      final query = await _firestore
+          .collection(AppConstants.skilledUsersCollection)
+          .where('userId', isEqualTo: userId)
+          .limit(5)
+          .get();
+      for (final doc in query.docs) {
+        if (doc.id != userId) {
+          await doc.reference.set({
+            'verificationStatus': AppConstants.verificationRejected,
+            'rejectionReason': reason,
+            'visibility': AppConstants.visibilityPrivate,
+            'isVerified': false,
+            'updatedAt': FieldValue.serverTimestamp(),
+          }, SetOptions(merge: true));
+        }
+      }
+    } catch (e) {
+      debugPrint('rejectVerification secondary sync error: $e');
+    }
   }
 
   // ===== Reports (extra admin methods â€“ submitProfileReport is defined earlier) ======
@@ -5460,9 +5542,13 @@ class FirestoreService {
         (snapshot) {
           pendingVerifications = snapshot.docs
               .map((doc) => SkilledUserProfile.fromMap(doc.data(), doc.id))
-              .where((p) =>
-                  p.verificationStatus.toLowerCase().trim() ==
-                  AppConstants.verificationPending)
+              .where((p) {
+                final s = p.verificationStatus.toLowerCase().trim();
+                return !p.isVerified &&
+                    (s == AppConstants.verificationPending ||
+                        s == AppConstants.verificationSubmitted ||
+                        s == 'submitted');
+              })
               .toList();
           pendingVerifications
               .sort((a, b) => a.createdAt.compareTo(b.createdAt));

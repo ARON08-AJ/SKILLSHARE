@@ -10,6 +10,7 @@ class AppConstants {
 
   // Verification Status
   static const String verificationPending = 'pending';
+  static const String verificationSubmitted = 'submitted';
   static const String verificationApproved = 'approved';
   static const String verificationRejected = 'rejected';
 

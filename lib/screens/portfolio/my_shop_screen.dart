@@ -1227,9 +1227,8 @@ class _MyShopScreenState extends State<MyShopScreen>
     final userProvider = Provider.of<UserProvider>(context, listen: false);
     final nav = Navigator.of(context);
 
-    // Load profile if not already loaded
-    if (userProvider.currentProfile == null &&
-        authProvider.currentUser != null) {
+    // Refresh profile to pick up latest verification status
+    if (authProvider.currentUser != null) {
       await userProvider.loadProfile(authProvider.currentUser!.uid);
     }
 

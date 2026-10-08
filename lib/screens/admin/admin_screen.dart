@@ -4,7 +4,6 @@ import 'dart:math' as math;
 import 'package:csv/csv.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../models/user_model.dart';
@@ -730,6 +729,8 @@ class _UsersTabState extends State<_UsersTab> {
   List<UserModel> _allUsers = [];
   List<UserModel> _filteredUsers = [];
   Set<String> _pendingVerificationUserIds = <String>{};
+  Set<String> _verifiedUserIds = <String>{};
+  Map<String, Map<String, dynamic>> _skilledProfileByUserId = {};
   bool _isLoading = true;
   bool _isBulkCreatingUsers = false;
   String _searchQuery = '';
@@ -738,7 +739,7 @@ class _UsersTabState extends State<_UsersTab> {
 
   void showPendingVerificationFilter() {
     _pendingVerificationOnly = true;
-    _roleFilter = UserRoles.skilledPerson;
+    _roleFilter = null;
     _applyFilter();
   }
 
@@ -783,12 +784,14 @@ class _UsersTabState extends State<_UsersTab> {
 
     final skilledProfileByAnyId = <String, Map<String, dynamic>>{};
     final pendingIdCandidates = <String>{};
+    final verifiedIdCandidates = <String>{};
     final pendingProfileByAnyId = <String, Map<String, dynamic>>{};
 
     for (final doc in skilledSnapshot.docs) {
       final data = doc.data();
       final status =
           ((data['verificationStatus'] as String?) ?? '').toLowerCase().trim();
+      final isVerified = data['isVerified'] == true || status == 'approved';
 
       final ids = <String>{
         doc.id,
@@ -803,7 +806,11 @@ class _UsersTabState extends State<_UsersTab> {
         skilledProfileByAnyId[id] = data;
       }
 
-      if (status == 'pending') {
+      if (isVerified) {
+        verifiedIdCandidates.addAll(ids);
+      } else if (status == 'pending' ||
+          status == 'submitted' ||
+          data['verificationData'] != null) {
         pendingIdCandidates.addAll(ids);
         for (final id in ids) {
           pendingProfileByAnyId[id] = data;
@@ -812,6 +819,8 @@ class _UsersTabState extends State<_UsersTab> {
     }
 
     _pendingVerificationUserIds = pendingIdCandidates;
+    _verifiedUserIds = verifiedIdCandidates;
+    _skilledProfileByUserId = skilledProfileByAnyId;
 
     // Self-heal and normalize each user from allUsers
     final repairedUsers = allUsers.map((u) {
@@ -939,42 +948,153 @@ class _UsersTabState extends State<_UsersTab> {
     });
   }
 
-  Future<void> _createDeliveryPartner() async {
-    final formData = await showDialog<_DeliveryPartnerFormData>(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (_) => MediaQuery.withClampedTextScaling(
-        maxScaleFactor: 1.15,
-        child: const _DeliveryPartnerDialog(),
-      ),
+  Future<void> _approveUserVerification(UserModel user) async {
+    final confirmed = await AppDialog.confirm(
+      context,
+      title: 'Approve Verification',
+      message:
+          'Approve verification for ${user.name.isNotEmpty ? user.name : user.email}?\n\n'
+          'This will mark their identity as verified and grant them full selling privileges to open a shop and add products.',
+      confirmText: 'Approve',
+      gradientColors: const [Color(0xFF2E7D32), Color(0xFF00897B)],
+      icon: Icons.verified_user_rounded,
     );
 
-    if (formData == null) return;
+    if (confirmed != true) return;
 
     try {
-      final created = await _deliveryPartnerAdminService.createDeliveryPartner(
-        name: formData.name,
-        email: formData.email,
-        password: formData.password,
-        phone: formData.phone,
-      );
+      await widget.firestoreService.approveVerification(user.uid);
       await _loadUsers();
       if (!mounted) return;
-      await AppDialog.success(
+      AppPopup.show(
         context,
-        'Delivery partner account created.\n\n'
-        'Name: ${created.name}\n'
-        'Email: ${created.email}\n'
-        'Password: ${created.password}',
-        title: 'Login Details Ready',
-        buttonText: 'Close',
+        message:
+            '${user.name.isNotEmpty ? user.name : "User"} has been approved and verified!',
+        type: PopupType.success,
       );
     } catch (e) {
       if (!mounted) return;
-      await AppDialog.error(
+      AppPopup.show(
         context,
-        'Could not create the delivery partner account.',
-        detail: e.toString().replaceFirst('Exception: ', ''),
+        message: 'Failed to approve verification: $e',
+        type: PopupType.error,
+      );
+    }
+  }
+
+  Future<void> _rejectUserVerification(UserModel user) async {
+    final reasonController = TextEditingController(
+      text: 'Verification details did not meet platform requirements.',
+    );
+
+    final shouldReject = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Row(
+          children: [
+            Icon(Icons.cancel_rounded, color: Color(0xFFC62828)),
+            SizedBox(width: 8),
+            Text('Reject Verification'),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Reject verification for ${user.name.isNotEmpty ? user.name : user.email}?',
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: reasonController,
+              maxLines: 2,
+              decoration: const InputDecoration(
+                labelText: 'Rejection Reason',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFC62828),
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Reject'),
+          ),
+        ],
+      ),
+    );
+
+    if (shouldReject != true) {
+      reasonController.dispose();
+      return;
+    }
+
+    final reason = reasonController.text.trim();
+    reasonController.dispose();
+
+    try {
+      await widget.firestoreService
+          .rejectVerification(user.uid, reason: reason);
+      await _loadUsers();
+      if (!mounted) return;
+      AppPopup.show(
+        context,
+        message:
+            'Verification rejected for ${user.name.isNotEmpty ? user.name : "User"}',
+        type: PopupType.info,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      AppPopup.show(
+        context,
+        message: 'Failed to reject verification: $e',
+        type: PopupType.error,
+      );
+    }
+  }
+
+  Future<void> _revokeUserVerification(UserModel user) async {
+    final confirmed = await AppDialog.confirm(
+      context,
+      title: 'Revoke Verification',
+      message:
+          'Revoke verification for ${user.name.isNotEmpty ? user.name : user.email}?\n\n'
+          'Their verified status will be removed and they will not be able to list new products until re-verified.',
+      confirmText: 'Revoke',
+      gradientColors: const [Color(0xFFE65100), Color(0xFFD32F2F)],
+      icon: Icons.remove_moderator_rounded,
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await widget.firestoreService.rejectVerification(
+        user.uid,
+        reason: 'Verification status revoked by administrator.',
+      );
+      await _loadUsers();
+      if (!mounted) return;
+      AppPopup.show(
+        context,
+        message:
+            'Verification revoked for ${user.name.isNotEmpty ? user.name : "User"}',
+        type: PopupType.info,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      AppPopup.show(
+        context,
+        message: 'Failed to revoke verification: $e',
+        type: PopupType.error,
       );
     }
   }
@@ -1486,12 +1606,6 @@ class _UsersTabState extends State<_UsersTab> {
                                       : const Icon(Icons.upload_file, size: 18),
                                   label: const Text('Bulk CSV'),
                                 ),
-                                OutlinedButton.icon(
-                                  onPressed: _createDeliveryPartner,
-                                  icon: const Icon(Icons.local_shipping,
-                                      size: 18),
-                                  label: const Text('Add Delivery'),
-                                ),
                               ],
                             );
 
@@ -1631,7 +1745,7 @@ class _UsersTabState extends State<_UsersTab> {
                                         _pendingVerificationOnly =
                                             v == '__pending__';
                                         _roleFilter = v == '__pending__'
-                                            ? UserRoles.skilledPerson
+                                            ? null
                                             : v;
                                         _applyFilter();
                                       })),
@@ -1640,12 +1754,6 @@ class _UsersTabState extends State<_UsersTab> {
                         ),
                       ],
                     ),
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: _ManagedMembersSection(
-                    firestoreService: widget.firestoreService,
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -1674,12 +1782,28 @@ class _UsersTabState extends State<_UsersTab> {
                 itemCount: _filteredUsers.length,
                 itemBuilder: (context, index) {
                   final user = _filteredUsers[index];
+                  final isPending =
+                      _pendingVerificationUserIds.contains(user.uid);
+                  final isVerified = _verifiedUserIds.contains(user.uid);
+                  final skilledData = _skilledProfileByUserId[user.uid];
                   return _UserCard(
                     index: index,
                     user: user,
+                    isPendingVerification: isPending,
+                    isVerified: isVerified,
+                    skilledProfileData: skilledData,
                     onEdit: () => _editUser(user),
                     onSuspend: () => _toggleSuspend(user),
                     onDelete: () => _deleteAccount(user),
+                    onApproveVerification: isPending
+                        ? () => _approveUserVerification(user)
+                        : null,
+                    onRejectVerification: isPending
+                        ? () => _rejectUserVerification(user)
+                        : null,
+                    onRevokeVerification: isVerified
+                        ? () => _revokeUserVerification(user)
+                        : null,
                   );
                 },
               ),
@@ -1741,16 +1865,28 @@ Widget _filterChip(
 class _UserCard extends StatelessWidget {
   final int index;
   final UserModel user;
+  final bool isPendingVerification;
+  final bool isVerified;
+  final Map<String, dynamic>? skilledProfileData;
   final VoidCallback onEdit;
   final VoidCallback onSuspend;
   final VoidCallback onDelete;
+  final VoidCallback? onApproveVerification;
+  final VoidCallback? onRejectVerification;
+  final VoidCallback? onRevokeVerification;
 
   const _UserCard({
     required this.index,
     required this.user,
+    required this.isPendingVerification,
+    required this.isVerified,
+    this.skilledProfileData,
     required this.onEdit,
     required this.onSuspend,
     required this.onDelete,
+    this.onApproveVerification,
+    this.onRejectVerification,
+    this.onRevokeVerification,
   });
 
   Color get _roleColor {
@@ -1785,10 +1921,24 @@ class _UserCard extends StatelessWidget {
     return '(no email)';
   }
 
+  String? get _maskedAadhaar {
+    final vData = skilledProfileData?['verificationData'];
+    if (vData is Map) {
+      final masked = (vData['maskedAadhaar'] as String?)?.trim();
+      if (masked != null && masked.isNotEmpty) return masked;
+      final rawNumber = (vData['aadhaarNumber'] as String?)?.trim();
+      if (rawNumber != null && rawNumber.length >= 4) {
+        return 'XXXX XXXX ';
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final isSuspended = user.isSuspended ?? false;
     final isActive = user.isActive;
+    final aadhaar = _maskedAadhaar;
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
@@ -1806,16 +1956,25 @@ class _UserCard extends StatelessWidget {
           gradient: LinearGradient(
             colors: [
               Colors.white,
-              _roleColor.withValues(alpha: 0.08),
+              isPendingVerification
+                  ? const Color(0xFFFFF3E0)
+                  : _roleColor.withValues(alpha: 0.08),
             ],
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
           ),
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: _roleColor.withValues(alpha: 0.22)),
+          border: Border.all(
+            color: isPendingVerification
+                ? const Color(0xFFFFB74D)
+                : _roleColor.withValues(alpha: 0.22),
+            width: isPendingVerification ? 1.5 : 1.0,
+          ),
           boxShadow: [
             BoxShadow(
-              color: _roleColor.withValues(alpha: 0.12),
+              color: isPendingVerification
+                  ? Colors.orange.withValues(alpha: 0.16)
+                  : _roleColor.withValues(alpha: 0.12),
               blurRadius: 10,
               offset: const Offset(0, 3),
             ),
@@ -1824,6 +1983,7 @@ class _UserCard extends StatelessWidget {
         child: Padding(
           padding: const EdgeInsets.all(12),
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               UniversalAvatar(
                 avatarConfig: user.avatarConfig,
@@ -1869,11 +2029,12 @@ class _UserCard extends StatelessWidget {
                       ],
                     ),
                     Text(
-                        _effectiveEmail,
-                        style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
-                    const SizedBox(height: 4),
+                      _effectiveEmail,
+                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    const SizedBox(height: 5),
                     Wrap(
                       spacing: 6,
                       runSpacing: 6,
@@ -1913,8 +2074,126 @@ class _UserCard extends StatelessWidget {
                             ),
                           ),
                         ),
+                        if (isVerified)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFDFF5E7),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                  color: const Color(0xFFA5D6A7)),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.verified_rounded,
+                                    size: 12, color: Color(0xFF1B8A3E)),
+                                SizedBox(width: 4),
+                                Text(
+                                  'VERIFIED',
+                                  style: TextStyle(
+                                    color: Color(0xFF1B8A3E),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        if (isPendingVerification)
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFF1D6),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                  color: const Color(0xFFFFCC80)),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.hourglass_top_rounded,
+                                    size: 12, color: Color(0xFFB26A00)),
+                                SizedBox(width: 4),
+                                Text(
+                                  'PENDING VERIFICATION',
+                                  style: TextStyle(
+                                    color: Color(0xFFB26A00),
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
                       ],
                     ),
+                    if (aadhaar != null) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Icon(Icons.credit_card,
+                              size: 13, color: Colors.blueGrey[600]),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Aadhaar: ',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: Colors.blueGrey[800],
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    if (isPendingVerification) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          ElevatedButton.icon(
+                            onPressed: onApproveVerification,
+                            icon: const Icon(Icons.check_circle_rounded,
+                                size: 15),
+                            label: const Text('Approve'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1B8A3E),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 14, vertical: 7),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              textStyle: const TextStyle(
+                                  fontWeight: FontWeight.w700, fontSize: 12),
+                            ),
+                          ),
+                          OutlinedButton.icon(
+                            onPressed: onRejectVerification,
+                            icon: const Icon(Icons.cancel_rounded, size: 15),
+                            label: const Text('Reject'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFC62828),
+                              side: const BorderSide(color: Color(0xFFEF9A9A)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 7),
+                              minimumSize: Size.zero,
+                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              textStyle: const TextStyle(
+                                  fontWeight: FontWeight.w600, fontSize: 12),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -1925,11 +2204,55 @@ class _UserCard extends StatelessWidget {
                 color: Colors.white,
                 elevation: 8,
                 onSelected: (v) {
+                  if (v == 'approve') onApproveVerification?.call();
+                  if (v == 'reject') onRejectVerification?.call();
+                  if (v == 'revoke') onRevokeVerification?.call();
                   if (v == 'edit') onEdit();
                   if (v == 'suspend') onSuspend();
                   if (v == 'delete') onDelete();
                 },
                 itemBuilder: (_) => [
+                  if (isPendingVerification) ...[
+                    const PopupMenuItem(
+                      value: 'approve',
+                      child: Row(
+                        children: [
+                          Icon(Icons.verified_rounded,
+                              color: Color(0xFF1B8A3E), size: 18),
+                          SizedBox(width: 8),
+                          Text('Approve Verification',
+                              style: TextStyle(
+                                  color: Color(0xFF1B8A3E),
+                                  fontWeight: FontWeight.w600)),
+                        ],
+                      ),
+                    ),
+                    const PopupMenuItem(
+                      value: 'reject',
+                      child: Row(
+                        children: [
+                          Icon(Icons.cancel_rounded,
+                              color: Color(0xFFC62828), size: 18),
+                          SizedBox(width: 8),
+                          Text('Reject Verification',
+                              style: TextStyle(color: Color(0xFFC62828))),
+                        ],
+                      ),
+                    ),
+                  ],
+                  if (isVerified)
+                    const PopupMenuItem(
+                      value: 'revoke',
+                      child: Row(
+                        children: [
+                          Icon(Icons.remove_moderator_rounded,
+                              color: Color(0xFFE65100), size: 18),
+                          SizedBox(width: 8),
+                          Text('Revoke Verification',
+                              style: TextStyle(color: Color(0xFFE65100))),
+                        ],
+                      ),
+                    ),
                   const PopupMenuItem(
                     value: 'edit',
                     child: Row(
@@ -1977,1292 +2300,6 @@ class _UserCard extends StatelessWidget {
   }
 }
 
-class _ManagedMembersSection extends StatefulWidget {
-  final FirestoreService firestoreService;
-
-  const _ManagedMembersSection({required this.firestoreService});
-
-  @override
-  State<_ManagedMembersSection> createState() => _ManagedMembersSectionState();
-}
-
-class _ManagedMembersSectionState extends State<_ManagedMembersSection> {
-  List<Map<String, dynamic>> _allMembers = <Map<String, dynamic>>[];
-  List<Map<String, dynamic>> _filteredMembers = <Map<String, dynamic>>[];
-  bool _isLoading = true;
-  bool _isBulkImporting = false;
-  String _searchQuery = '';
-  String _typeFilter = 'all';
-  String _approvalFilter = 'all';
-
-  @override
-  void initState() {
-    super.initState();
-    _loadMembers();
-  }
-
-  String _normalizeMemberType(dynamic value) {
-    final type = value?.toString().trim().toLowerCase() ?? '';
-    if (type == AppConstants.memberTypeSkilled) {
-      return AppConstants.memberTypeSkilled;
-    }
-    return AppConstants.memberTypeCompany;
-  }
-
-  String _memberTypeLabel(String memberType) {
-    return memberType == AppConstants.memberTypeSkilled
-        ? 'Skilled Member'
-        : 'Company Member';
-  }
-
-  Color _memberTypeColor(String memberType) {
-    return memberType == AppConstants.memberTypeSkilled
-        ? const Color(0xFF00897B)
-        : const Color(0xFF5E35B1);
-  }
-
-  String _normalizeApproval(dynamic value) {
-    final status = value?.toString().trim().toLowerCase() ?? '';
-    if (status == AppConstants.approvalApproved) {
-      return AppConstants.approvalApproved;
-    }
-    if (status == AppConstants.approvalRejected) {
-      return AppConstants.approvalRejected;
-    }
-    return AppConstants.approvalPending;
-  }
-
-  List<String> _asStringList(dynamic value) {
-    if (value is List) {
-      return value
-          .map((e) => e?.toString().trim() ?? '')
-          .where((e) => e.isNotEmpty)
-          .toList();
-    }
-    if (value is String) {
-      return value
-          .split(',')
-          .map((e) => e.trim())
-          .where((e) => e.isNotEmpty)
-          .toList();
-    }
-    return const <String>[];
-  }
-
-  Future<void> _loadMembers() async {
-    setState(() => _isLoading = true);
-    final data = await widget.firestoreService.getManagedMembers(limit: 800);
-    _allMembers = data;
-    _applyFilters();
-    if (mounted) {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  void _applyFilters() {
-    final q = _searchQuery.trim().toLowerCase();
-
-    _filteredMembers = _allMembers.where((member) {
-      final memberType = _normalizeMemberType(member['memberType']);
-      final approval = _normalizeApproval(member['approvalStatus']);
-
-      final textParts = <String>[
-        (member['name'] ?? '').toString(),
-        (member['email'] ?? '').toString(),
-        (member['phone'] ?? '').toString(),
-        (member['parentUserId'] ?? '').toString(),
-        (member['parentName'] ?? '').toString(),
-        (member['designation'] ?? '').toString(),
-        (member['skillCategory'] ?? '').toString(),
-        (member['address'] ?? '').toString(),
-      ].join(' ').toLowerCase();
-
-      final matchesType = _typeFilter == 'all' || memberType == _typeFilter;
-      final matchesApproval =
-          _approvalFilter == 'all' || approval == _approvalFilter;
-      final matchesSearch = q.isEmpty || textParts.contains(q);
-
-      return matchesType && matchesApproval && matchesSearch;
-    }).toList();
-
-    setState(() {});
-  }
-
-  Future<void> _createMember() async {
-    final formData = await showDialog<_ManagedMemberFormData>(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (_) => MediaQuery.withClampedTextScaling(
-        maxScaleFactor: 1.15,
-        child: const _ManagedMemberDialog(),
-      ),
-    );
-
-    if (formData == null) return;
-
-    final adminId = FirebaseAuth.instance.currentUser?.uid;
-    if (adminId == null) {
-      if (!mounted) return;
-      AppPopup.show(
-        context,
-        message: 'Admin session missing. Please login again.',
-        type: PopupType.error,
-      );
-      return;
-    }
-
-    try {
-      await widget.firestoreService.createManagedMember(
-        formData.toPayload(),
-        adminId: adminId,
-      );
-      await _loadMembers();
-      if (!mounted) return;
-      AppPopup.show(
-        context,
-        message: 'Member added successfully',
-        type: PopupType.success,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      AppPopup.show(
-        context,
-        message: 'Failed to add member: $e',
-        type: PopupType.error,
-      );
-    }
-  }
-
-  Future<void> _editMember(Map<String, dynamic> member) async {
-    final formData = await showDialog<_ManagedMemberFormData>(
-      context: context,
-      barrierColor: Colors.black54,
-      builder: (_) => MediaQuery.withClampedTextScaling(
-        maxScaleFactor: 1.15,
-        child: _ManagedMemberDialog(
-          initialData: _ManagedMemberFormData.fromExisting(member),
-        ),
-      ),
-    );
-
-    if (formData == null) return;
-
-    final memberId = (member['id'] ?? '').toString();
-    if (memberId.isEmpty) return;
-
-    try {
-      await widget.firestoreService.updateManagedMember(
-        memberId,
-        formData.toPayload(),
-      );
-      await _loadMembers();
-      if (!mounted) return;
-      AppPopup.show(
-        context,
-        message: 'Member updated successfully',
-        type: PopupType.success,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      AppPopup.show(
-        context,
-        message: 'Failed to update member: $e',
-        type: PopupType.error,
-      );
-    }
-  }
-
-  Future<void> _deleteMember(Map<String, dynamic> member) async {
-    final memberId = (member['id'] ?? '').toString();
-    if (memberId.isEmpty) return;
-
-    final confirmed = await AppDialog.confirm(
-      context,
-      title: 'Delete Member',
-      message:
-          'Delete ${(member['name'] ?? 'this member').toString()} permanently?',
-      confirmText: 'Delete',
-      gradientColors: const [Color(0xFFD32F2F), Color(0xFFFF7043)],
-      icon: Icons.delete_forever,
-    );
-
-    if (confirmed != true) return;
-
-    try {
-      await widget.firestoreService.deleteManagedMember(memberId);
-      await _loadMembers();
-      if (!mounted) return;
-      AppPopup.show(
-        context,
-        message: 'Member deleted',
-        type: PopupType.success,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      AppPopup.show(
-        context,
-        message: 'Delete failed: $e',
-        type: PopupType.error,
-      );
-    }
-  }
-
-  Future<void> _updateApproval(
-      Map<String, dynamic> member, String approvalStatus) async {
-    final memberId = (member['id'] ?? '').toString();
-    if (memberId.isEmpty) return;
-
-    try {
-      await widget.firestoreService.updateManagedMember(
-        memberId,
-        {
-          'approvalStatus': approvalStatus,
-          'verificationNotes': approvalStatus == AppConstants.approvalRejected
-              ? 'Rejected by admin'
-              : '',
-        },
-      );
-      await _loadMembers();
-      if (!mounted) return;
-      AppPopup.show(
-        context,
-        message: 'Approval status updated',
-        type: PopupType.success,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      AppPopup.show(
-        context,
-        message: 'Update failed: $e',
-        type: PopupType.error,
-      );
-    }
-  }
-
-  Future<void> _bulkImportMembersFromCsv() async {
-    final picked = await FilePicker.platform.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: const ['csv'],
-      withData: true,
-    );
-
-    if (picked == null || picked.files.isEmpty) return;
-    final bytes = picked.files.single.bytes;
-    if (bytes == null || bytes.isEmpty) {
-      if (!mounted) return;
-      AppPopup.show(
-        context,
-        message: 'Unable to read CSV bytes.',
-        type: PopupType.error,
-      );
-      return;
-    }
-
-    final adminId = FirebaseAuth.instance.currentUser?.uid;
-    if (adminId == null) {
-      if (!mounted) return;
-      AppPopup.show(
-        context,
-        message: 'Admin session missing. Please login again.',
-        type: PopupType.error,
-      );
-      return;
-    }
-
-    setState(() => _isBulkImporting = true);
-    int success = 0;
-    final failures = <String>[];
-
-    try {
-      final csvRaw = utf8.decode(bytes, allowMalformed: true);
-      final rows = const CsvDecoder(dynamicTyping: false).convert(csvRaw);
-      if (rows.length < 2) {
-        throw Exception('CSV requires header + data rows.');
-      }
-
-      final headers =
-          rows.first.map((e) => e.toString().trim().toLowerCase()).toList();
-      int idx(String key) => headers.indexOf(key);
-
-      final nameIdx = idx('name');
-      final typeIdx = idx('member_type');
-      if (nameIdx == -1) {
-        throw Exception('CSV requires at least name column.');
-      }
-
-      String cell(List<dynamic> row, int index) {
-        if (index < 0 || index >= row.length) return '';
-        return row[index].toString().trim();
-      }
-
-      for (var i = 1; i < rows.length; i++) {
-        final row = rows[i];
-        final rowNumber = i + 1;
-
-        final payload = <String, dynamic>{
-          'name': cell(row, nameIdx),
-          'email': cell(row, idx('email')),
-          'phone': cell(row, idx('phone')),
-          'memberType': typeIdx == -1
-              ? AppConstants.memberTypeCompany
-              : cell(row, typeIdx),
-          'parentUserId': cell(row, idx('parent_user_id')),
-          'parentName': cell(row, idx('parent_name')),
-          'designation': cell(row, idx('designation')),
-          'skillCategory': cell(row, idx('skill_category')),
-          'experienceYears': cell(row, idx('experience_years')),
-          'address': cell(row, idx('address')),
-          'idProofUrls': cell(row, idx('id_proof_urls')),
-          'permissions': cell(row, idx('permissions')),
-          'status': cell(row, idx('status')),
-          'approvalStatus': cell(row, idx('approval_status')),
-        };
-
-        if ((payload['name'] as String).trim().isEmpty) {
-          continue;
-        }
-
-        try {
-          await widget.firestoreService.createManagedMember(
-            payload,
-            adminId: adminId,
-          );
-          success++;
-        } catch (e) {
-          failures.add(
-              'Row $rowNumber: ${e.toString().replaceFirst('Exception: ', '')}');
-        }
-      }
-
-      await _loadMembers();
-      if (!mounted) return;
-
-      final summary = StringBuffer()
-        ..writeln('Bulk member import completed.')
-        ..writeln()
-        ..writeln('Success: $success')
-        ..writeln('Failed: ${failures.length}');
-
-      if (failures.isNotEmpty) {
-        summary.writeln();
-        summary.writeln('Errors (first 8):');
-        for (final failure in failures.take(8)) {
-          summary.writeln('- $failure');
-        }
-      }
-
-      await AppDialog.info(
-        context,
-        summary.toString(),
-        title: 'Bulk Members Result',
-      );
-    } catch (e) {
-      if (!mounted) return;
-      await AppDialog.error(
-        context,
-        'Bulk member import failed.',
-        detail: e.toString().replaceFirst('Exception: ', ''),
-      );
-    } finally {
-      if (mounted) {
-        setState(() => _isBulkImporting = false);
-      }
-    }
-  }
-
-  Future<void> _exportMembersCsv() async {
-    final rows = <List<dynamic>>[
-      <dynamic>[
-        'id',
-        'name',
-        'email',
-        'phone',
-        'member_type',
-        'parent_user_id',
-        'parent_name',
-        'designation',
-        'skill_category',
-        'experience_years',
-        'address',
-        'id_proof_urls',
-        'permissions',
-        'status',
-        'approval_status',
-      ]
-    ];
-
-    for (final member in _filteredMembers) {
-      rows.add(<dynamic>[
-        (member['id'] ?? '').toString(),
-        (member['name'] ?? '').toString(),
-        (member['email'] ?? '').toString(),
-        (member['phone'] ?? '').toString(),
-        _normalizeMemberType(member['memberType']),
-        (member['parentUserId'] ?? '').toString(),
-        (member['parentName'] ?? '').toString(),
-        (member['designation'] ?? '').toString(),
-        (member['skillCategory'] ?? '').toString(),
-        (member['experienceYears'] ?? '').toString(),
-        (member['address'] ?? '').toString(),
-        _asStringList(member['idProofUrls']).join('|'),
-        _asStringList(member['permissions']).join('|'),
-        (member['status'] ?? 'active').toString(),
-        _normalizeApproval(member['approvalStatus']),
-      ]);
-    }
-
-    String csvEscape(dynamic value) {
-      final raw = value?.toString() ?? '';
-      if (raw.contains(',') || raw.contains('"') || raw.contains('\n')) {
-        return '"${raw.replaceAll('"', '""')}"';
-      }
-      return raw;
-    }
-
-    final csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n');
-    await Clipboard.setData(ClipboardData(text: csv));
-    if (!mounted) return;
-    await AppDialog.info(
-      context,
-      'Member CSV exported to clipboard (${_filteredMembers.length} rows).\n\n'
-      'Paste this into Excel/Sheets or save as .csv.',
-      title: 'Export Complete',
-    );
-  }
-
-  Widget _buildApprovalChip(String approvalStatus) {
-    Color bg;
-    Color fg;
-    String label;
-    if (approvalStatus == AppConstants.approvalApproved) {
-      bg = const Color(0xFFDFF5E7);
-      fg = const Color(0xFF1B8A3E);
-      label = 'APPROVED';
-    } else if (approvalStatus == AppConstants.approvalRejected) {
-      bg = const Color(0xFFFDE2E2);
-      fg = const Color(0xFFC62828);
-      label = 'REJECTED';
-    } else {
-      bg = const Color(0xFFFFF1D6);
-      fg = const Color(0xFFB26A00);
-      label = 'PENDING';
-    }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          color: fg,
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildMemberCard(Map<String, dynamic> member) {
-    final name = (member['name'] ?? 'Member').toString();
-    final email = (member['email'] ?? '').toString();
-    final memberType = _normalizeMemberType(member['memberType']);
-    final approval = _normalizeApproval(member['approvalStatus']);
-    final roleOrDesignation = (member['designation'] ?? '').toString();
-    final parentName = (member['parentName'] ?? '').toString();
-    final parentId = (member['parentUserId'] ?? '').toString();
-    final skillCategory = (member['skillCategory'] ?? '').toString();
-    final status =
-        ((member['status'] ?? 'active').toString().toLowerCase() == 'inactive')
-            ? 'inactive'
-            : 'active';
-
-    final subtitleParts = <String>[
-      if (roleOrDesignation.isNotEmpty) roleOrDesignation,
-      if (skillCategory.isNotEmpty) skillCategory,
-      if (parentName.isNotEmpty) 'Owner: $parentName',
-      if (parentName.isEmpty && parentId.isNotEmpty) 'Owner ID: $parentId',
-    ];
-
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: _memberTypeColor(memberType).withValues(alpha: 0.22),
-        ),
-      ),
-      child: ListTile(
-        leading: CircleAvatar(
-          backgroundColor: _memberTypeColor(memberType).withValues(alpha: 0.14),
-          child: Icon(
-            memberType == AppConstants.memberTypeSkilled
-                ? Icons.engineering
-                : Icons.business_center,
-            color: _memberTypeColor(memberType),
-            size: 18,
-          ),
-        ),
-        title: Text(
-          name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w700),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (email.isNotEmpty)
-              Text(
-                email,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-            if (subtitleParts.isNotEmpty)
-              Text(
-                subtitleParts.join(' • '),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 12),
-              ),
-            const SizedBox(height: 4),
-            Wrap(
-              spacing: 6,
-              runSpacing: 4,
-              children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: _memberTypeColor(memberType).withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    _memberTypeLabel(memberType),
-                    style: TextStyle(
-                      color: _memberTypeColor(memberType),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-                _buildApprovalChip(approval),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                  decoration: BoxDecoration(
-                    color: status == 'active'
-                        ? const Color(0xFFDFF5E7)
-                        : const Color(0xFFEDEDED),
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                  child: Text(
-                    status.toUpperCase(),
-                    style: TextStyle(
-                      color: status == 'active'
-                          ? const Color(0xFF1B8A3E)
-                          : const Color(0xFF616161),
-                      fontSize: 10,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-        trailing: PopupMenuButton<String>(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          onSelected: (value) {
-            if (value == 'edit') {
-              _editMember(member);
-            } else if (value == 'approve') {
-              _updateApproval(member, AppConstants.approvalApproved);
-            } else if (value == 'reject') {
-              _updateApproval(member, AppConstants.approvalRejected);
-            } else if (value == 'delete') {
-              _deleteMember(member);
-            }
-          },
-          itemBuilder: (_) => const [
-            PopupMenuItem(
-              value: 'edit',
-              child: Row(
-                children: [
-                  Icon(Icons.edit, size: 18),
-                  SizedBox(width: 8),
-                  Text('Edit'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'approve',
-              child: Row(
-                children: [
-                  Icon(Icons.verified_rounded,
-                      size: 18, color: Color(0xFF1B8A3E)),
-                  SizedBox(width: 8),
-                  Text('Approve'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'reject',
-              child: Row(
-                children: [
-                  Icon(Icons.cancel_rounded,
-                      size: 18, color: Color(0xFFC62828)),
-                  SizedBox(width: 8),
-                  Text('Reject'),
-                ],
-              ),
-            ),
-            PopupMenuItem(
-              value: 'delete',
-              child: Row(
-                children: [
-                  Icon(Icons.delete, size: 18, color: Color(0xFFC62828)),
-                  SizedBox(width: 8),
-                  Text('Delete', style: TextStyle(color: Color(0xFFC62828))),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          colors: [Color(0xFFFFFFFF), Color(0xFFF2F9FF), Color(0xFFF8F3FF)],
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-        ),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: const Color(0xFFD7DFF8)),
-        boxShadow: [
-          BoxShadow(
-            color: const Color(0xFF1E88E5).withValues(alpha: 0.09),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(Icons.group_work_rounded, color: Color(0xFF1565C0)),
-              const SizedBox(width: 8),
-              const Expanded(
-                child: Text(
-                  'Company and Skilled Members',
-                  style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-                ),
-              ),
-              Text(
-                '${_filteredMembers.length}',
-                style: const TextStyle(
-                  color: Color(0xFF1565C0),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Admin-only member directory with details, approval, permissions, search, and CSV import/export.',
-            style: TextStyle(color: Colors.grey[700], fontSize: 12),
-          ),
-          const SizedBox(height: 10),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              ElevatedButton.icon(
-                onPressed: _createMember,
-                icon: const Icon(Icons.person_add_alt_1, size: 18),
-                label: const Text('Add Member'),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF1565C0),
-                  foregroundColor: Colors.white,
-                ),
-              ),
-              OutlinedButton.icon(
-                onPressed: _isBulkImporting ? null : _bulkImportMembersFromCsv,
-                icon: _isBulkImporting
-                    ? const SizedBox(
-                        width: 14,
-                        height: 14,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Icon(Icons.upload_file, size: 18),
-                label: const Text('Bulk CSV'),
-              ),
-              OutlinedButton.icon(
-                onPressed: _filteredMembers.isEmpty ? null : _exportMembersCsv,
-                icon: const Icon(Icons.download_rounded, size: 18),
-                label: const Text('Export CSV'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          TextField(
-            onChanged: (value) {
-              _searchQuery = value;
-              _applyFilters();
-            },
-            decoration: InputDecoration(
-              hintText: 'Search members by name, owner, email, role...',
-              prefixIcon: const Icon(Icons.search),
-              filled: true,
-              fillColor: const Color(0xFFF9FBFF),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFFD3DCF7)),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                ChoiceChip(
-                  label: const Text('All Types'),
-                  selected: _typeFilter == 'all',
-                  onSelected: (_) {
-                    _typeFilter = 'all';
-                    _applyFilters();
-                  },
-                ),
-                const SizedBox(width: 6),
-                ChoiceChip(
-                  label: const Text('Company'),
-                  selected: _typeFilter == AppConstants.memberTypeCompany,
-                  onSelected: (_) {
-                    _typeFilter = AppConstants.memberTypeCompany;
-                    _applyFilters();
-                  },
-                ),
-                const SizedBox(width: 6),
-                ChoiceChip(
-                  label: const Text('Skilled'),
-                  selected: _typeFilter == AppConstants.memberTypeSkilled,
-                  onSelected: (_) {
-                    _typeFilter = AppConstants.memberTypeSkilled;
-                    _applyFilters();
-                  },
-                ),
-                const SizedBox(width: 12),
-                ChoiceChip(
-                  label: const Text('All Approval'),
-                  selected: _approvalFilter == 'all',
-                  onSelected: (_) {
-                    _approvalFilter = 'all';
-                    _applyFilters();
-                  },
-                ),
-                const SizedBox(width: 6),
-                ChoiceChip(
-                  label: const Text('Pending'),
-                  selected: _approvalFilter == AppConstants.approvalPending,
-                  onSelected: (_) {
-                    _approvalFilter = AppConstants.approvalPending;
-                    _applyFilters();
-                  },
-                ),
-                const SizedBox(width: 6),
-                ChoiceChip(
-                  label: const Text('Approved'),
-                  selected: _approvalFilter == AppConstants.approvalApproved,
-                  onSelected: (_) {
-                    _approvalFilter = AppConstants.approvalApproved;
-                    _applyFilters();
-                  },
-                ),
-                const SizedBox(width: 6),
-                ChoiceChip(
-                  label: const Text('Rejected'),
-                  selected: _approvalFilter == AppConstants.approvalRejected,
-                  onSelected: (_) {
-                    _approvalFilter = AppConstants.approvalRejected;
-                    _applyFilters();
-                  },
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          if (_isLoading)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 20),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_filteredMembers.isEmpty)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              alignment: Alignment.center,
-              child: Text(
-                'No members found for selected filters.',
-                style: TextStyle(color: Colors.grey[600]),
-              ),
-            )
-          else
-            SizedBox(
-              height: (MediaQuery.sizeOf(context).height * 0.32)
-                  .clamp(180.0, 290.0)
-                  .toDouble(),
-              child: RefreshIndicator(
-                onRefresh: _loadMembers,
-                child: ListView.builder(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  itemCount: _filteredMembers.length,
-                  itemBuilder: (context, index) =>
-                      _buildMemberCard(_filteredMembers[index]),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ManagedMemberFormData {
-  final String name;
-  final String email;
-  final String phone;
-  final String memberType;
-  final String parentUserId;
-  final String parentName;
-  final String designation;
-  final String skillCategory;
-  final String experienceYears;
-  final String address;
-  final String status;
-  final String approvalStatus;
-  final List<String> permissions;
-  final List<String> idProofUrls;
-  final String verificationNotes;
-
-  const _ManagedMemberFormData({
-    required this.name,
-    required this.email,
-    required this.phone,
-    required this.memberType,
-    required this.parentUserId,
-    required this.parentName,
-    required this.designation,
-    required this.skillCategory,
-    required this.experienceYears,
-    required this.address,
-    required this.status,
-    required this.approvalStatus,
-    required this.permissions,
-    required this.idProofUrls,
-    required this.verificationNotes,
-  });
-
-  factory _ManagedMemberFormData.fromExisting(Map<String, dynamic> data) {
-    List<String> listFrom(dynamic value) {
-      if (value is List) {
-        return value
-            .map((e) => e?.toString().trim() ?? '')
-            .where((e) => e.isNotEmpty)
-            .toList();
-      }
-      if (value is String) {
-        return value
-            .split(',')
-            .map((e) => e.trim())
-            .where((e) => e.isNotEmpty)
-            .toList();
-      }
-      return const <String>[];
-    }
-
-    return _ManagedMemberFormData(
-      name: (data['name'] ?? '').toString(),
-      email: (data['email'] ?? '').toString(),
-      phone: (data['phone'] ?? '').toString(),
-      memberType:
-          (data['memberType'] ?? AppConstants.memberTypeCompany).toString(),
-      parentUserId: (data['parentUserId'] ?? '').toString(),
-      parentName: (data['parentName'] ?? '').toString(),
-      designation: (data['designation'] ?? '').toString(),
-      skillCategory: (data['skillCategory'] ?? '').toString(),
-      experienceYears: (data['experienceYears'] ?? '').toString(),
-      address: (data['address'] ?? '').toString(),
-      status: (data['status'] ?? 'active').toString(),
-      approvalStatus:
-          (data['approvalStatus'] ?? AppConstants.approvalPending).toString(),
-      permissions: listFrom(data['permissions']),
-      idProofUrls: listFrom(data['idProofUrls']),
-      verificationNotes: (data['verificationNotes'] ?? '').toString(),
-    );
-  }
-
-  Map<String, dynamic> toPayload() {
-    return {
-      'name': name,
-      'email': email,
-      'phone': phone,
-      'memberType': memberType,
-      'parentUserId': parentUserId,
-      'parentName': parentName,
-      'designation': designation,
-      'skillCategory': skillCategory,
-      'experienceYears': experienceYears,
-      'address': address,
-      'status': status,
-      'approvalStatus': approvalStatus,
-      'permissions': permissions,
-      'idProofUrls': idProofUrls,
-      'verificationNotes': verificationNotes,
-    };
-  }
-}
-
-class _ManagedMemberDialog extends StatefulWidget {
-  final _ManagedMemberFormData? initialData;
-
-  const _ManagedMemberDialog({this.initialData});
-
-  @override
-  State<_ManagedMemberDialog> createState() => _ManagedMemberDialogState();
-}
-
-class _ManagedMemberDialogState extends State<_ManagedMemberDialog> {
-  final _formKey = GlobalKey<FormState>();
-  late final TextEditingController _nameController;
-  late final TextEditingController _emailController;
-  late final TextEditingController _phoneController;
-  late final TextEditingController _parentUserIdController;
-  late final TextEditingController _parentNameController;
-  late final TextEditingController _designationController;
-  late final TextEditingController _skillCategoryController;
-  late final TextEditingController _experienceController;
-  late final TextEditingController _addressController;
-  late final TextEditingController _permissionsController;
-  late final TextEditingController _idProofUrlsController;
-  late final TextEditingController _notesController;
-
-  late String _memberType;
-  late String _status;
-  late String _approvalStatus;
-
-  @override
-  void initState() {
-    super.initState();
-    final initial = widget.initialData;
-
-    _nameController = TextEditingController(text: initial?.name ?? '');
-    _emailController = TextEditingController(text: initial?.email ?? '');
-    _phoneController = TextEditingController(text: initial?.phone ?? '');
-    _parentUserIdController =
-        TextEditingController(text: initial?.parentUserId ?? '');
-    _parentNameController =
-        TextEditingController(text: initial?.parentName ?? '');
-    _designationController =
-        TextEditingController(text: initial?.designation ?? '');
-    _skillCategoryController =
-        TextEditingController(text: initial?.skillCategory ?? '');
-    _experienceController =
-        TextEditingController(text: initial?.experienceYears ?? '');
-    _addressController = TextEditingController(text: initial?.address ?? '');
-    _permissionsController =
-        TextEditingController(text: (initial?.permissions ?? []).join(', '));
-    _idProofUrlsController =
-        TextEditingController(text: (initial?.idProofUrls ?? []).join(', '));
-    _notesController =
-        TextEditingController(text: initial?.verificationNotes ?? '');
-
-    _memberType = initial?.memberType == AppConstants.memberTypeSkilled
-        ? AppConstants.memberTypeSkilled
-        : AppConstants.memberTypeCompany;
-    _status = (initial?.status.toLowerCase() ?? 'active') == 'inactive'
-        ? 'inactive'
-        : 'active';
-    _approvalStatus = initial?.approvalStatus == AppConstants.approvalApproved
-        ? AppConstants.approvalApproved
-        : initial?.approvalStatus == AppConstants.approvalRejected
-            ? AppConstants.approvalRejected
-            : AppConstants.approvalPending;
-  }
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _emailController.dispose();
-    _phoneController.dispose();
-    _parentUserIdController.dispose();
-    _parentNameController.dispose();
-    _designationController.dispose();
-    _skillCategoryController.dispose();
-    _experienceController.dispose();
-    _addressController.dispose();
-    _permissionsController.dispose();
-    _idProofUrlsController.dispose();
-    _notesController.dispose();
-    super.dispose();
-  }
-
-  List<String> _splitCommaValues(String value) {
-    return value
-        .split(',')
-        .map((e) => e.trim())
-        .where((e) => e.isNotEmpty)
-        .toSet()
-        .toList();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: Text(widget.initialData == null ? 'Add Member' : 'Edit Member'),
-      content: Form(
-        key: _formKey,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 520),
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  controller: _nameController,
-                  decoration: const InputDecoration(labelText: 'Name *'),
-                  validator: (value) => (value == null || value.trim().isEmpty)
-                      ? 'Name is required'
-                      : null,
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _emailController,
-                  decoration: const InputDecoration(labelText: 'Email'),
-                  keyboardType: TextInputType.emailAddress,
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _phoneController,
-                  decoration: const InputDecoration(labelText: 'Phone'),
-                  keyboardType: TextInputType.phone,
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  isExpanded: true,
-                  value: _memberType,
-                  decoration: const InputDecoration(labelText: 'Member Type'),
-                  items: const [
-                    DropdownMenuItem(
-                      value: AppConstants.memberTypeCompany,
-                      child: Text(
-                        'Company Member',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    DropdownMenuItem(
-                      value: AppConstants.memberTypeSkilled,
-                      child: Text(
-                        'Skilled Member',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() => _memberType = value);
-                    }
-                  },
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _parentUserIdController,
-                  decoration: const InputDecoration(
-                    labelText: 'Owner User ID (company/skilled)',
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _parentNameController,
-                  decoration: const InputDecoration(labelText: 'Owner Name'),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _designationController,
-                  decoration:
-                      const InputDecoration(labelText: 'Designation / Role'),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _skillCategoryController,
-                  decoration:
-                      const InputDecoration(labelText: 'Skill Category'),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _experienceController,
-                  decoration:
-                      const InputDecoration(labelText: 'Experience Years'),
-                  keyboardType:
-                      const TextInputType.numberWithOptions(decimal: true),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _addressController,
-                  decoration: const InputDecoration(labelText: 'Address'),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _idProofUrlsController,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'ID Proof URLs (comma separated)',
-                  ),
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _permissionsController,
-                  maxLines: 2,
-                  decoration: const InputDecoration(
-                    labelText: 'Permissions (comma separated)',
-                    helperText:
-                        'Examples: view_jobs, manage_orders, manage_portfolio',
-                  ),
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  isExpanded: true,
-                  value: _status,
-                  decoration: const InputDecoration(labelText: 'Status'),
-                  items: const [
-                    DropdownMenuItem(
-                      value: 'active',
-                      child: Text(
-                        'Active',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    DropdownMenuItem(
-                      value: 'inactive',
-                      child: Text(
-                        'Inactive',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() => _status = value);
-                    }
-                  },
-                ),
-                const SizedBox(height: 10),
-                DropdownButtonFormField<String>(
-                  isExpanded: true,
-                  value: _approvalStatus,
-                  decoration:
-                      const InputDecoration(labelText: 'Approval Status'),
-                  items: const [
-                    DropdownMenuItem(
-                      value: AppConstants.approvalPending,
-                      child: Text(
-                        'Pending',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    DropdownMenuItem(
-                      value: AppConstants.approvalApproved,
-                      child: Text(
-                        'Approved',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    DropdownMenuItem(
-                      value: AppConstants.approvalRejected,
-                      child: Text(
-                        'Rejected',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    if (value != null) {
-                      setState(() => _approvalStatus = value);
-                    }
-                  },
-                ),
-                const SizedBox(height: 10),
-                TextFormField(
-                  controller: _notesController,
-                  maxLines: 2,
-                  decoration:
-                      const InputDecoration(labelText: 'Verification Notes'),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
-        ),
-        ElevatedButton(
-          onPressed: () {
-            if (!_formKey.currentState!.validate()) return;
-
-            Navigator.of(context).pop(
-              _ManagedMemberFormData(
-                name: _nameController.text.trim(),
-                email: _emailController.text.trim(),
-                phone: _phoneController.text.trim(),
-                memberType: _memberType,
-                parentUserId: _parentUserIdController.text.trim(),
-                parentName: _parentNameController.text.trim(),
-                designation: _designationController.text.trim(),
-                skillCategory: _skillCategoryController.text.trim(),
-                experienceYears: _experienceController.text.trim(),
-                address: _addressController.text.trim(),
-                status: _status,
-                approvalStatus: _approvalStatus,
-                permissions:
-                    _splitCommaValues(_permissionsController.text.trim()),
-                idProofUrls:
-                    _splitCommaValues(_idProofUrlsController.text.trim()),
-                verificationNotes: _notesController.text.trim(),
-              ),
-            );
-          },
-          child: Text(widget.initialData == null ? 'Create' : 'Save'),
-        ),
-      ],
-    );
-  }
-}
-
-// ─────────────────────────── REPORTS TAB ───────────────────────────
 
 class _AdminUserFormData {
   final String name;
@@ -3413,271 +2450,6 @@ class _AdminUserDialogState extends State<_AdminUserDialog> {
           child: const Text('Create'),
         ),
       ],
-    );
-  }
-}
-
-class _DeliveryPartnerFormData {
-  final String name;
-  final String email;
-  final String password;
-  final String? phone;
-
-  const _DeliveryPartnerFormData({
-    required this.name,
-    required this.email,
-    required this.password,
-    this.phone,
-  });
-}
-
-class _DeliveryPartnerDialog extends StatefulWidget {
-  const _DeliveryPartnerDialog();
-
-  @override
-  State<_DeliveryPartnerDialog> createState() => _DeliveryPartnerDialogState();
-}
-
-class _DeliveryPartnerDialogState extends State<_DeliveryPartnerDialog> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _emailController = TextEditingController();
-  final _passwordController = TextEditingController();
-  final _phoneController = TextEditingController();
-  bool _obscurePassword = true;
-
-  @override
-  void dispose() {
-    _nameController.dispose();
-    _emailController.dispose();
-    _passwordController.dispose();
-    _phoneController.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
-        child: Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(24),
-            gradient: const LinearGradient(
-              colors: [Color(0xFFFFFFFF), Color(0xFFF6F8FF)],
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-            ),
-            boxShadow: const [
-              BoxShadow(
-                color: Color(0x331565C0),
-                blurRadius: 28,
-                offset: Offset(0, 16),
-              ),
-            ],
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.fromLTRB(20, 22, 20, 18),
-                  decoration: const BoxDecoration(
-                    gradient: LinearGradient(
-                      colors: [Color(0xFF0D47A1), Color(0xFF26A69A)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                  ),
-                  child: const Column(
-                    children: [
-                      CircleAvatar(
-                        radius: 24,
-                        backgroundColor: Color(0x33FFFFFF),
-                        child: Icon(Icons.local_shipping,
-                            color: Colors.white, size: 28),
-                      ),
-                      SizedBox(height: 10),
-                      Text(
-                        'Add Delivery Partner',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      SizedBox(height: 6),
-                      Text(
-                        'Create login details for a new delivery account.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: Colors.white70, fontSize: 13),
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
-                  child: Form(
-                    key: _formKey,
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        TextFormField(
-                          controller: _nameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Partner Name',
-                            prefixIcon: Icon(Icons.person_outline),
-                            border: OutlineInputBorder(),
-                          ),
-                          textInputAction: TextInputAction.next,
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Enter the delivery partner name';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _emailController,
-                          decoration: const InputDecoration(
-                            labelText: 'Login Email',
-                            prefixIcon: Icon(Icons.email_outlined),
-                            border: OutlineInputBorder(),
-                            helperText:
-                                'Use a real inbox-backed email if you want password reset emails to work.',
-                          ),
-                          keyboardType: TextInputType.emailAddress,
-                          textInputAction: TextInputAction.next,
-                          validator: (value) {
-                            final email = value?.trim() ?? '';
-                            if (email.isEmpty) {
-                              return 'Enter the login email';
-                            }
-                            if (!email.contains('@') || !email.contains('.')) {
-                              return 'Enter a valid email address';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _passwordController,
-                          obscureText: _obscurePassword,
-                          decoration: InputDecoration(
-                            labelText: 'Temporary Password',
-                            prefixIcon: const Icon(Icons.lock_outline),
-                            border: const OutlineInputBorder(),
-                            suffixIcon: IconButton(
-                              onPressed: () => setState(
-                                () => _obscurePassword = !_obscurePassword,
-                              ),
-                              icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility_off
-                                    : Icons.visibility,
-                              ),
-                            ),
-                          ),
-                          textInputAction: TextInputAction.next,
-                          validator: (value) {
-                            final password = value?.trim() ?? '';
-                            if (password.length < 6) {
-                              return 'Use at least 6 characters';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 12),
-                        TextFormField(
-                          controller: _phoneController,
-                          decoration: const InputDecoration(
-                            labelText: 'Phone Number (Optional)',
-                            prefixIcon: Icon(Icons.phone_outlined),
-                            border: OutlineInputBorder(),
-                          ),
-                          keyboardType: TextInputType.phone,
-                          textInputAction: TextInputAction.done,
-                        ),
-                        const SizedBox(height: 18),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: OutlinedButton(
-                                onPressed: () => Navigator.of(context).pop(),
-                                style: OutlinedButton.styleFrom(
-                                  foregroundColor: const Color(0xFF1565C0),
-                                  side: const BorderSide(
-                                      color: Color(0xFF1565C0)),
-                                  padding:
-                                      const EdgeInsets.symmetric(vertical: 13),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(14),
-                                  ),
-                                ),
-                                child: const Text('Cancel'),
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  gradient: const LinearGradient(
-                                    colors: [
-                                      Color(0xFF0D47A1),
-                                      Color(0xFF26A69A)
-                                    ],
-                                  ),
-                                  borderRadius: BorderRadius.circular(14),
-                                ),
-                                child: ElevatedButton(
-                                  onPressed: () {
-                                    if (!_formKey.currentState!.validate()) {
-                                      return;
-                                    }
-                                    Navigator.of(context).pop(
-                                      _DeliveryPartnerFormData(
-                                        name: _nameController.text.trim(),
-                                        email: _emailController.text.trim(),
-                                        password:
-                                            _passwordController.text.trim(),
-                                        phone: _phoneController.text.trim(),
-                                      ),
-                                    );
-                                  },
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.transparent,
-                                    shadowColor: Colors.transparent,
-                                    foregroundColor: Colors.white,
-                                    padding: const EdgeInsets.symmetric(
-                                        vertical: 13),
-                                    shape: RoundedRectangleBorder(
-                                      borderRadius: BorderRadius.circular(14),
-                                    ),
-                                  ),
-                                  child: const Text(
-                                    'Create Account',
-                                    style:
-                                        TextStyle(fontWeight: FontWeight.bold),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

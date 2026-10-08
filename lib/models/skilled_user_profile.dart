@@ -36,6 +36,11 @@ class SkilledUserProfile {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  bool get isPendingVerification =>
+      !isVerified &&
+      (verificationStatus.toLowerCase().trim() == 'pending' ||
+          verificationStatus.toLowerCase().trim() == 'submitted');
+
   static DateTime? _readDate(dynamic value) {
     if (value is Timestamp) return value.toDate();
     if (value is DateTime) return value;
@@ -93,6 +98,12 @@ class SkilledUserProfile {
       return const <String>[];
     }
 
+    final rawStatus =
+        ((map['verificationStatus'] as String?) ?? '').trim().toLowerCase();
+    final isExplicitlyVerified =
+        map['isVerified'] == true || rawStatus == 'approved';
+    final effectiveStatus = rawStatus.isNotEmpty ? rawStatus : 'pending';
+
     return SkilledUserProfile(
       userId: effectiveUserId,
       name: map['name'],
@@ -100,7 +111,7 @@ class SkilledUserProfile {
       skills: asStringList(map['skills']),
       category: map['category'],
       profilePicture: map['profilePicture'],
-      verificationStatus: map['verificationStatus'] ?? 'pending',
+      verificationStatus: effectiveStatus,
       visibility: map['visibility'] ?? 'private',
       portfolioImages: asStringList(map['portfolioImages']),
       portfolioVideos: asStringList(map['portfolioVideos']),
@@ -114,7 +125,7 @@ class SkilledUserProfile {
       reviewCount: map['reviewCount'] ?? 0,
       projectCount: map['projectCount'] ?? 0,
       profileViews: map['profileViews'] ?? 0,
-      isVerified: map['isVerified'] ?? false,
+      isVerified: isExplicitlyVerified,
       verifiedAt: (map['verifiedAt'] as Timestamp?)?.toDate(),
       rejectionReason: map['rejectionReason'],
       companyEndorsementCount: map['companyEndorsementCount'] ?? 0,
