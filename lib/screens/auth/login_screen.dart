@@ -98,10 +98,12 @@ class _LoginScreenState extends State<LoginScreen>
 
     final authProvider = Provider.of<AuthProvider>(context, listen: false);
 
-    // Smart email: append @gmail.com if user typed plain name
+    // Smart email: append @gmail.com if user typed plain name, remove spaces
     String email = _emailController.text.trim();
     if (!email.contains('@')) {
-      email = '$email@gmail.com';
+      email = '${email.replaceAll(RegExp(r'\s+'), '')}@gmail.com';
+    } else {
+      email = email.replaceAll(RegExp(r'\s+'), '');
     }
     if (email.toLowerCase() == 'admin@skillshare.com') {
       email = 'admin@gmail.com';

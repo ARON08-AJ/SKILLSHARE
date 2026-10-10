@@ -74,25 +74,9 @@ class ProductCard extends StatelessWidget {
                                   ),
                                 ),
                               ),
-                              errorWidget: Container(
-                                color: const Color(0xFFF5F5F5),
-                                child: const Icon(
-                                  Icons.image_outlined,
-                                  color: Colors.grey,
-                                  size: 28,
-                                ),
-                              ),
+                              errorWidget: _buildFallbackImage(product),
                             )
-                          : Container(
-                              color: const Color(0xFFF5F5F5),
-                              child: Icon(
-                                product.isService
-                                    ? Icons.design_services_outlined
-                                    : Icons.shopping_bag_outlined,
-                                size: 30,
-                                color: Colors.grey,
-                              ),
-                            ),
+                          : _buildFallbackImage(product),
                       if (isBestSeller || isTopRated)
                         Positioned(
                           top: 0,
@@ -295,6 +279,75 @@ class ProductCard extends StatelessWidget {
             ),
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildFallbackImage(ProductModel product) {
+    final isService = product.isService;
+    final List<Color> gradientColors = isService
+        ? [const Color(0xFFEDE7F6), const Color(0xFFD1C4E9)]
+        : [const Color(0xFFFCE4EC), const Color(0xFFF8BBD0)];
+    final Color iconColor =
+        isService ? const Color(0xFF7B1FA2) : const Color(0xFFC2185B);
+    final IconData icon = isService
+        ? (product.category.toLowerCase().contains('app') ||
+                product.category.toLowerCase().contains('code') ||
+                product.name.toLowerCase().contains('developer')
+            ? Icons.code_rounded
+            : Icons.design_services_rounded)
+        : Icons.shopping_bag_outlined;
+
+    return Container(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: gradientColors,
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+      ),
+      child: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: Colors.white.withValues(alpha: 0.85),
+                shape: BoxShape.circle,
+                boxShadow: [
+                  BoxShadow(
+                    color: iconColor.withValues(alpha: 0.15),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ],
+              ),
+              child: Icon(
+                icon,
+                color: iconColor,
+                size: 26,
+              ),
+            ),
+            const SizedBox(height: 5),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Text(
+                product.category.isNotEmpty
+                    ? product.category
+                    : (isService ? 'Service' : 'Product'),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: iconColor,
+                  letterSpacing: 0.3,
+                ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

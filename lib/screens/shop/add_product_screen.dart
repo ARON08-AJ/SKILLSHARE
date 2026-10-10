@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -420,6 +421,11 @@ class _AddProductScreenState extends State<AddProductScreen> {
           );
           if (url != null) {
             finalImageUrls.add(url);
+          } else {
+            // Fallback: If Cloudinary upload failed or network timed out, store as data URI
+            final base64String = base64Encode(bytes);
+            final dataUri = 'data:image/jpeg;base64,$base64String';
+            finalImageUrls.add(dataUri);
           }
         }
       }

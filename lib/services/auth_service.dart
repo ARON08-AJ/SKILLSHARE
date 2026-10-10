@@ -149,35 +149,49 @@ class AuthService {
     required String password,
   }) async {
     try {
-      final normalizedEmail = email.trim().toLowerCase();
-      final effectiveEmail = (normalizedEmail == 'admin@skillshare.com')
+      final cleanEmail = email.trim().replaceAll(RegExp(r'\s+'), '').toLowerCase();
+      final effectiveEmail = (cleanEmail == 'admin@skillshare.com')
           ? 'admin@gmail.com'
-          : normalizedEmail;
+          : cleanEmail;
 
-      UserCredential userCredential;
+      UserCredential? userCredential;
       try {
         userCredential = await _auth.signInWithEmailAndPassword(
           email: effectiveEmail,
           password: password,
         );
       } on FirebaseAuthException {
-        // If user typed common admin variants, fallback to the configured admin password
-        final isAdminEmail = effectiveEmail == 'admin@gmail.com';
         final trimmedPassword = password.trim();
-        final isAdminVariant = trimmedPassword == 'admin' ||
-            trimmedPassword == 'admin123' ||
-            trimmedPassword == 'admin@123' ||
-            trimmedPassword == 'Admin123' ||
-            trimmedPassword == '123456' ||
-            trimmedPassword == 'admin123456';
+        // If user typed password with accidental leading/trailing spaces, retry with trimmed password
+        if (trimmedPassword.isNotEmpty && trimmedPassword != password) {
+          try {
+            userCredential = await _auth.signInWithEmailAndPassword(
+              email: effectiveEmail,
+              password: trimmedPassword,
+            );
+          } on FirebaseAuthException {
+            // Fall through to admin check / rethrow
+          }
+        }
 
-        if (isAdminEmail && isAdminVariant) {
-          userCredential = await _auth.signInWithEmailAndPassword(
-            email: 'admin@gmail.com',
-            password: 'Admin@123',
-          );
-        } else {
-          rethrow;
+        if (userCredential == null) {
+          // If user typed common admin variants, fallback to the configured admin password
+          final isAdminEmail = effectiveEmail == 'admin@gmail.com';
+          final isAdminVariant = trimmedPassword == 'admin' ||
+              trimmedPassword == 'admin123' ||
+              trimmedPassword == 'admin@123' ||
+              trimmedPassword == 'Admin123' ||
+              trimmedPassword == '123456' ||
+              trimmedPassword == 'admin123456';
+
+          if (isAdminEmail && isAdminVariant) {
+            userCredential = await _auth.signInWithEmailAndPassword(
+              email: 'admin@gmail.com',
+              password: 'Admin@123',
+            );
+          } else {
+            rethrow;
+          }
         }
       }
 
@@ -228,7 +242,14 @@ class AuthService {
       // Check if data exists
       final data = doc.data();
       if (data == null) {
-        throw 'User data is empty';
+        return UserModel(
+          uid: user.uid,
+          email: user.email ?? email,
+          name: user.displayName ?? email.split('@').first,
+          role: AppConstants.roleCustomer,
+          createdAt: DateTime.now(),
+          updatedAt: DateTime.now(),
+        );
       }
 
       debugPrint('User data: $data');
@@ -507,22 +528,32 @@ class AuthService {
   // Handle auth exceptions
   String _handleAuthException(FirebaseAuthException e) {
     switch (e.code) {
-      case 'weak-password':
-        return 'The password is too weak';
-      case 'email-already-in-use':
-        return 'An account already exists for this email';
-      case 'invalid-email':
-        return 'The email address is invalid';
-      case 'user-disabled':
-        return 'This account has been disabled';
-      case 'user-not-found':
-        return 'No account found with this email';
+      case 'invalid-credential':
+      case 'invalid-login-credentials':
+      case 'INVALID_LOGIN_CREDENTIALS':
+        return 'Invalid email or password. Please verify your email and password, or use Forgot Password to reset it.';
       case 'wrong-password':
-        return 'Incorrect password';
+        return 'Incorrect password. Please verify your password and try again.';
+      case 'user-not-found':
+        return 'No account found with this email. Please check your email or sign up.';
+      case 'user-disabled':
+        return 'This account has been disabled. Please contact the administrator.';
       case 'too-many-requests':
-        return 'Too many attempts. Please try again later';
+        return 'Too many sign-in attempts. Please wait a few moments and try again.';
+      case 'network-request-failed':
+        return 'Network connection failed. Please check your internet connection.';
+      case 'invalid-email':
+        return 'The email address format is invalid.';
+      case 'email-already-in-use':
+        return 'An account already exists for this email.';
+      case 'weak-password':
+        return 'The password is too weak. Please use at least 6 characters.';
       default:
-        return 'Authentication failed. Please try again';
+        final msg = e.message?.trim();
+        if (msg != null && msg.isNotEmpty) {
+          return msg;
+        }
+        return 'Authentication failed (${e.code}). Please check your credentials and try again.';
     }
   }
 }

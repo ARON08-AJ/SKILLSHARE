@@ -25,10 +25,14 @@ class WebImageLoader {
       value = value.substring(1, value.length - 1).trim();
     }
 
-    // Drop any appended text after whitespace/newline.
-    final firstToken = value.split(RegExp(r'\s+')).first.trim();
-    if (firstToken.isNotEmpty) {
-      value = firstToken;
+    // Drop newlines if any
+    if (value.contains('\n') || value.contains('\r')) {
+      value = value.split(RegExp(r'[\r\n]+')).first.trim();
+    }
+
+    // Safely encode spaces in URLs instead of cutting off the URL
+    if (value.contains(' ')) {
+      value = value.replaceAll(' ', '%20');
     }
 
     // Upgrade http to https for mixed-content web security
@@ -36,18 +40,21 @@ class WebImageLoader {
       value = 'https://${value.substring(7)}';
     }
 
-    // Recover malformed values like "...jpgSpiderPlant" by cutting at the
-    // first image extension when trailing junk is attached.
-    final extensionMatch = RegExp(
-      r'\.(jpg|jpeg|png|webp|gif|bmp)',
-      caseSensitive: false,
-    ).firstMatch(value);
-    if (extensionMatch != null) {
-      final extEnd = extensionMatch.end;
-      if (extEnd < value.length) {
-        final nextChar = value.substring(extEnd, extEnd + 1);
-        if (nextChar != '?' && nextChar != '#' && nextChar != '&') {
-          value = value.substring(0, extEnd);
+    // Recover malformed values with trailing junk only from the last path segment (filename)
+    final lastSlashIndex = value.lastIndexOf('/');
+    if (lastSlashIndex != -1 && lastSlashIndex < value.length - 1) {
+      final filename = value.substring(lastSlashIndex + 1);
+      final extensionMatch = RegExp(
+        r'\.(jpg|jpeg|png|webp|gif|bmp)',
+        caseSensitive: false,
+      ).firstMatch(filename);
+      if (extensionMatch != null) {
+        final extEnd = extensionMatch.end;
+        if (extEnd < filename.length) {
+          final nextChar = filename.substring(extEnd, extEnd + 1);
+          if (nextChar != '?' && nextChar != '#' && nextChar != '&') {
+            value = value.substring(0, lastSlashIndex + 1 + extEnd);
+          }
         }
       }
     }
@@ -146,7 +153,57 @@ class WebImageLoader {
     }
 
     if (kIsWeb) {
-      // For web, use Image.network with proper error handling
+      final isHttpUrl = sanitizedImageUrl.startsWith('http://') ||
+          sanitizedImageUrl.startsWith('https://');
+      final isAlreadyProxied = sanitizedImageUrl.contains('images.weserv.nl');
+
+      Widget buildProxyFallback() {
+        if (isHttpUrl && !isAlreadyProxied) {
+          final proxyUrl =
+              'https://images.weserv.nl/?url=${Uri.encodeComponent(sanitizedImageUrl)}';
+          return Image.network(
+            proxyUrl,
+            width: width,
+            height: height,
+            fit: fit,
+            alignment: alignment,
+            gaplessPlayback: true,
+            filterQuality: FilterQuality.high,
+            errorBuilder: (context, error, stackTrace) {
+              return _defaultPlaceholder(
+                width: width,
+                height: height,
+                customWidget: errorWidget,
+              );
+            },
+            loadingBuilder: (context, child, loadingProgress) {
+              if (loadingProgress == null) return child;
+              return placeholder ??
+                  Container(
+                    width: width,
+                    height: height,
+                    color: const Color(0xFFF3F4F6),
+                    child: Center(
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        value: loadingProgress.expectedTotalBytes != null
+                            ? loadingProgress.cumulativeBytesLoaded /
+                                loadingProgress.expectedTotalBytes!
+                            : null,
+                      ),
+                    ),
+                  );
+            },
+          );
+        }
+        return _defaultPlaceholder(
+          width: width,
+          height: height,
+          customWidget: errorWidget,
+        );
+      }
+
+      // For web, use Image.network with proper error handling and automatic CORS proxy retry
       return Image.network(
         sanitizedImageUrl,
         width: width,
@@ -159,12 +216,8 @@ class WebImageLoader {
           final shortenedUrl = sanitizedImageUrl.length > 140
               ? '${sanitizedImageUrl.substring(0, 140)}...'
               : sanitizedImageUrl;
-          debugPrint('Image load error (web): $error | url=$shortenedUrl');
-          return _defaultPlaceholder(
-            width: width,
-            height: height,
-            customWidget: errorWidget,
-          );
+          debugPrint('Image direct load failed (web CORS), retrying with proxy: $error | url=$shortenedUrl');
+          return buildProxyFallback();
         },
         loadingBuilder: (context, child, loadingProgress) {
           if (loadingProgress == null) return child;

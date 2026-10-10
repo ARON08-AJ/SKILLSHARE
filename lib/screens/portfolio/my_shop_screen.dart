@@ -596,11 +596,19 @@ class _MyShopScreenState extends State<MyShopScreen>
         borderRadius: BorderRadius.circular(12),
         side: BorderSide(color: stageColor.withValues(alpha: 0.3)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (_) => OrderTrackingScreen(order: order),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
             Row(
               children: [
                 Expanded(
@@ -674,11 +682,69 @@ class _MyShopScreenState extends State<MyShopScreen>
               'Requested on: ${AppHelpers.formatDateTime(order.createdAt)}',
               style: const TextStyle(color: Colors.grey, fontSize: 11),
             ),
-            const SizedBox(height: 10),
+            if ((order.notes ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF3E5F5),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                    color: const Color(0xFF9C27B0).withValues(alpha: 0.25),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Row(
+                      children: [
+                        Icon(Icons.notes_rounded,
+                            size: 15, color: Color(0xFF7B1FA2)),
+                        SizedBox(width: 6),
+                        Text(
+                          'Client Requirements',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF7B1FA2),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    SelectableText(
+                      order.notes!.trim(),
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: Colors.black87,
+                        height: 1.45,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 12),
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
                 if (isRequested) ...[
+                  OutlinedButton.icon(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (_) => OrderTrackingScreen(order: order),
+                      ),
+                    ),
+                    icon: const Icon(Icons.visibility_outlined, size: 16),
+                    label: const Text('View Details'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF7B1FA2),
+                      side: const BorderSide(color: Color(0xFFCE93D8)),
+                    ),
+                  ),
+                  const Spacer(),
                   TextButton(
                     onPressed: () => _rejectServiceRequest(order),
                     style: TextButton.styleFrom(foregroundColor: Colors.red),
@@ -731,8 +797,9 @@ class _MyShopScreenState extends State<MyShopScreen>
           ],
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   Future<void> _openChatWithBuyer(OrderModel order) async {
     final currentUserId = FirebaseAuth.instance.currentUser?.uid;
