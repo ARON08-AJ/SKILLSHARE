@@ -21,10 +21,42 @@ class ProductCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final safeShopName = (shopName ?? '').trim();
-    final String? validImageUrl =
+    final String? suggestedUrl =
+        ProductModel.getSuggestedImageUrl(product.name, product.category);
+    final String? primaryImageUrl =
         product.images.where((url) => url.trim().isNotEmpty).isEmpty
-            ? null
+            ? suggestedUrl
             : product.images.firstWhere((url) => url.trim().isNotEmpty);
+
+    Widget buildCardImage() {
+      if (primaryImageUrl == null) {
+        return _buildFallbackImage(product);
+      }
+
+      Widget finalFallback = _buildFallbackImage(product);
+      if (primaryImageUrl != suggestedUrl && suggestedUrl != null) {
+        finalFallback = WebImageLoader.loadImage(
+          imageUrl: suggestedUrl,
+          fit: BoxFit.cover,
+          errorWidget: _buildFallbackImage(product),
+        );
+      }
+
+      return WebImageLoader.loadImage(
+        imageUrl: primaryImageUrl,
+        fit: BoxFit.cover,
+        placeholder: Container(
+          color: const Color(0xFFF5F5F5),
+          child: const Center(
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: AppTheme.primaryPink,
+            ),
+          ),
+        ),
+        errorWidget: finalFallback,
+      );
+    }
 
     final bool isAvailable = product.isService
         ? product.isAvailable
@@ -61,22 +93,7 @@ class ProductCard extends StatelessWidget {
                   child: Stack(
                     fit: StackFit.expand,
                     children: [
-                      validImageUrl != null
-                          ? WebImageLoader.loadImage(
-                              imageUrl: validImageUrl,
-                              fit: BoxFit.cover,
-                              placeholder: Container(
-                                color: const Color(0xFFF5F5F5),
-                                child: const Center(
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                    color: AppTheme.primaryPink,
-                                  ),
-                                ),
-                              ),
-                              errorWidget: _buildFallbackImage(product),
-                            )
-                          : _buildFallbackImage(product),
+                      buildCardImage(),
                       if (isBestSeller || isTopRated)
                         Positioned(
                           top: 0,
@@ -333,9 +350,12 @@ class ProductCard extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 8),
               child: Text(
-                product.category.isNotEmpty
-                    ? product.category
-                    : (isService ? 'Service' : 'Product'),
+                (product.name.toLowerCase().contains('plant') &&
+                        product.category.toLowerCase() == 'baking')
+                    ? 'Gardening'
+                    : (product.category.isNotEmpty
+                        ? product.category
+                        : (isService ? 'Service' : 'Product')),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(

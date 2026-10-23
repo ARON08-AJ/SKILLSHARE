@@ -1114,7 +1114,7 @@ class _ProductDetailScreenState extends State<ProductDetailScreen> {
                 icon: const Icon(Icons.shopping_cart_rounded,
                     size: 20, color: AppTheme.primaryOrange),
                 label: const Text(
-                  'View My Cart 🛒',
+                  'View My Cart',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,

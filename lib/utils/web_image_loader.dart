@@ -159,8 +159,10 @@ class WebImageLoader {
 
       Widget buildProxyFallback() {
         if (isHttpUrl && !isAlreadyProxied) {
+          final stripped =
+              sanitizedImageUrl.replaceFirst(RegExp(r'^https?:\/\/'), '');
           final proxyUrl =
-              'https://images.weserv.nl/?url=${Uri.encodeComponent(sanitizedImageUrl)}';
+              'https://images.weserv.nl/?url=${Uri.encodeComponent(stripped)}';
           return Image.network(
             proxyUrl,
             width: width,
@@ -170,10 +172,23 @@ class WebImageLoader {
             gaplessPlayback: true,
             filterQuality: FilterQuality.high,
             errorBuilder: (context, error, stackTrace) {
-              return _defaultPlaceholder(
+              final secondaryProxyUrl =
+                  'https://corsproxy.io/?${Uri.encodeComponent(sanitizedImageUrl)}';
+              return Image.network(
+                secondaryProxyUrl,
                 width: width,
                 height: height,
-                customWidget: errorWidget,
+                fit: fit,
+                alignment: alignment,
+                gaplessPlayback: true,
+                filterQuality: FilterQuality.high,
+                errorBuilder: (context, error2, stackTrace2) {
+                  return _defaultPlaceholder(
+                    width: width,
+                    height: height,
+                    customWidget: errorWidget,
+                  );
+                },
               );
             },
             loadingBuilder: (context, child, loadingProgress) {

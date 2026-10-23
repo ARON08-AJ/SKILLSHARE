@@ -1304,6 +1304,20 @@ class _SkilledUserSetupScreenState extends State<SkilledUserSetupScreen> {
                   ),
                   const SizedBox(height: 16),
 
+                  // Location / Pickup Address
+                  TextFormField(
+                    controller: _locationController,
+                    maxLines: 2,
+                    decoration: const InputDecoration(
+                      labelText: 'Pickup / Shop Address',
+                      hintText:
+                          'Enter your pickup address (street, area, city) for orders...',
+                      prefixIcon: Icon(Icons.location_on_outlined),
+                      alignLabelWithHint: true,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+
                   // Skills with suggestions
                   const Text(
                     'Skills',

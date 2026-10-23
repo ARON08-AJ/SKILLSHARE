@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Entity-Relationship Diagram</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background-color: #ffffff;
+      width: 1110px;
+      height: 940px;
+      overflow: hidden;
+    }
+  </style>
+</head>
+<body>
+  <svg xmlns="http://www.w3.org/2000/svg" width="1110" height="940" viewBox="0 0 1110 940">
+    <defs>
+      <!-- UML Open Navigation Arrow Marker -->
+      <marker id="umlArrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+        <polyline points="1,1.5 7,5 1,8.5" fill="none" stroke="#555555" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
+      </marker>
+    </defs>
+    
+    <!-- Background -->
+    <rect width="100%" height="100%" fill="#ffffff" />
+    
+    <!-- Connecting Lines -->
+    
+  <!-- Association Lines with Navigation Arrows & Multiplicities -->
+  
+  <!-- 1. User -> SkilledProfile -->
+  <path d="M 470 175 C 320 200, 160 235, 142 332" fill="none" stroke="#555555" stroke-width="1.3" marker-end="url(#umlArrow)" />
+  <text x="450" y="178" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">1</text>
+  <text x="148" y="322" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">1</text>
+  
+  <!-- 2. User -> CompanyProfile -->
+  <path d="M 505 198 C 465 240, 425 280, 417 332" fill="none" stroke="#555555" stroke-width="1.3" marker-end="url(#umlArrow)" />
+  <text x="480" y="222" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">1</text>
+  <text x="424" y="322" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">1</text>
+  
+  <!-- 3. User -> CustomerProfile -->
+  <path d="M 645 198 C 675 240, 692 280, 697 332" fill="none" stroke="#555555" stroke-width="1.3" marker-end="url(#umlArrow)" />
+  <text x="655" y="222" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">1</text>
+  <text x="704" y="322" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">1</text>
+  
+  <!-- 4. User -> Chat -->
+  <path d="M 680 175 C 810 200, 940 235, 972 332" fill="none" stroke="#555555" stroke-width="1.3" marker-end="url(#umlArrow)" />
+  <text x="695" y="178" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">*</text>
+  <text x="980" y="322" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">*</text>
+  
+  <!-- 5. SkilledProfile -> Product -->
+  <path d="M 142 501 L 142 652" fill="none" stroke="#555555" stroke-width="1.3" marker-end="url(#umlArrow)" />
+  <text x="130" y="525" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">1</text>
+  <text x="150" y="642" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">*</text>
+  
+  <!-- 6. CompanyProfile -> Job -->
+  <path d="M 417 501 L 417 652" fill="none" stroke="#555555" stroke-width="1.3" marker-end="url(#umlArrow)" />
+  <text x="405" y="525" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">1</text>
+  <text x="425" y="642" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">*</text>
+  
+  <!-- 7. CustomerProfile -> Order -->
+  <path d="M 665 501 C 658 545, 660 590, 665 642" fill="none" stroke="#555555" stroke-width="1.3" marker-end="url(#umlArrow)" />
+  <text x="648" y="525" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">1</text>
+  <text x="674" y="635" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">*</text>
+  
+  <!-- 8. CustomerProfile -> Review -->
+  <path d="M 760 501 C 815 545, 910 590, 952 642" fill="none" stroke="#555555" stroke-width="1.3" marker-end="url(#umlArrow)" />
+  <text x="748" y="525" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">1</text>
+  <text x="960" y="635" font-family="'Segoe UI', Arial, sans-serif" font-size="12" font-weight="bold" fill="#333333">*</text>
+
+    
+    <!-- UML Classes -->
+    
+  <!-- Box: User -->
+  <g id="box_user" transform="translate(470, 20)">
+    <rect x="0" y="0" width="210" height="181.5" fill="#ffffff" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Header Compartment -->
+    <rect x="0" y="0" width="210" height="32" fill="#eeeeee" stroke="#666666" stroke-width="1.2" />
+    <text x="105" y="21" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#000000" text-anchor="middle">User</text>
+    
+    <!-- Attributes Compartment -->
+    <g transform="translate(10, 37)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String userId</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String name</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String email</text>
+      <text x="0" y="68.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String role</text>
+    </g>
+    
+    <!-- Methods Divider -->
+    <line x1="0" y1="116" x2="210" y2="116" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Methods Compartment -->
+    <g transform="translate(10, 121)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+signUpWithEmail()</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+signInWithEmail()</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+updateUserProfile()</text>
+    </g>
+  </g>
+
+  <!-- Box: SkilledProfile -->
+  <g id="box_skilledProfile" transform="translate(25, 335)">
+    <rect x="0" y="0" width="235" height="163" fill="#ffffff" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Header Compartment -->
+    <rect x="0" y="0" width="235" height="32" fill="#eeeeee" stroke="#666666" stroke-width="1.2" />
+    <text x="117.5" y="21" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#000000" text-anchor="middle">SkilledProfile</text>
+    
+    <!-- Attributes Compartment -->
+    <g transform="translate(10, 37)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String skilledProfileId</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String professionTitle</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String verificationStatus</text>
+    </g>
+    
+    <!-- Methods Divider -->
+    <line x1="0" y1="97.5" x2="235" y2="97.5" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Methods Compartment -->
+    <g transform="translate(10, 102.5)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+getSkilledUserProfile()</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+updateSkilledUserProfile()</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+getUserPortfolio()</text>
+    </g>
+  </g>
+
+  <!-- Box: CompanyProfile -->
+  <g id="box_companyProfile" transform="translate(300, 335)">
+    <rect x="0" y="0" width="235" height="163" fill="#ffffff" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Header Compartment -->
+    <rect x="0" y="0" width="235" height="32" fill="#eeeeee" stroke="#666666" stroke-width="1.2" />
+    <text x="117.5" y="21" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#000000" text-anchor="middle">CompanyProfile</text>
+    
+    <!-- Attributes Compartment -->
+    <g transform="translate(10, 37)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String companyProfileId</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String companyName</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String industry</text>
+    </g>
+    
+    <!-- Methods Divider -->
+    <line x1="0" y1="97.5" x2="235" y2="97.5" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Methods Compartment -->
+    <g transform="translate(10, 102.5)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+getCompanyProfile()</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+updateCompanyProfile()</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+streamCompanyJobs()</text>
+    </g>
+  </g>
+
+  <!-- Box: CustomerProfile -->
+  <g id="box_customerProfile" transform="translate(575, 335)">
+    <rect x="0" y="0" width="245" height="163" fill="#ffffff" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Header Compartment -->
+    <rect x="0" y="0" width="245" height="32" fill="#eeeeee" stroke="#666666" stroke-width="1.2" />
+    <text x="122.5" y="21" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#000000" text-anchor="middle">CustomerProfile</text>
+    
+    <!-- Attributes Compartment -->
+    <g transform="translate(10, 37)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String customerProfileId</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String address</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String gpsLocation</text>
+    </g>
+    
+    <!-- Methods Divider -->
+    <line x1="0" y1="97.5" x2="245" y2="97.5" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Methods Compartment -->
+    <g transform="translate(10, 102.5)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+getCustomerProfile()</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+updateCustomerProfile()</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+customerProfileStream()</text>
+    </g>
+  </g>
+
+  <!-- Box: Chat -->
+  <g id="box_chat" transform="translate(865, 335)">
+    <rect x="0" y="0" width="215" height="144.5" fill="#ffffff" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Header Compartment -->
+    <rect x="0" y="0" width="215" height="32" fill="#eeeeee" stroke="#666666" stroke-width="1.2" />
+    <text x="107.5" y="21" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#000000" text-anchor="middle">Chat</text>
+    
+    <!-- Attributes Compartment -->
+    <g transform="translate(10, 37)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String chatId</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String chatType</text>
+    </g>
+    
+    <!-- Methods Divider -->
+    <line x1="0" y1="79" x2="215" y2="79" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Methods Compartment -->
+    <g transform="translate(10, 84)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+getMessages()</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+sendMessage()</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+deleteChat()</text>
+    </g>
+  </g>
+
+  <!-- Box: Product -->
+  <g id="box_product" transform="translate(35, 655)">
+    <rect x="0" y="0" width="215" height="163" fill="#ffffff" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Header Compartment -->
+    <rect x="0" y="0" width="215" height="32" fill="#eeeeee" stroke="#666666" stroke-width="1.2" />
+    <text x="107.5" y="21" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#000000" text-anchor="middle">Product</text>
+    
+    <!-- Attributes Compartment -->
+    <g transform="translate(10, 37)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String productId</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String title</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+double price</text>
+    </g>
+    
+    <!-- Methods Divider -->
+    <line x1="0" y1="97.5" x2="215" y2="97.5" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Methods Compartment -->
+    <g transform="translate(10, 102.5)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+createProduct()</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+updateProduct()</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+deleteProduct()</text>
+    </g>
+  </g>
+
+  <!-- Box: Job -->
+  <g id="box_job" transform="translate(310, 655)">
+    <rect x="0" y="0" width="215" height="163" fill="#ffffff" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Header Compartment -->
+    <rect x="0" y="0" width="215" height="32" fill="#eeeeee" stroke="#666666" stroke-width="1.2" />
+    <text x="107.5" y="21" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#000000" text-anchor="middle">Job</text>
+    
+    <!-- Attributes Compartment -->
+    <g transform="translate(10, 37)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String jobId</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String title</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String status</text>
+    </g>
+    
+    <!-- Methods Divider -->
+    <line x1="0" y1="97.5" x2="215" y2="97.5" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Methods Compartment -->
+    <g transform="translate(10, 102.5)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+createJob()</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+applyForJob()</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+updateJob()</text>
+    </g>
+  </g>
+
+  <!-- Box: Order -->
+  <g id="box_order" transform="translate(540, 645)">
+    <rect x="0" y="0" width="250" height="255.5" fill="#ffffff" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Header Compartment -->
+    <rect x="0" y="0" width="250" height="32" fill="#eeeeee" stroke="#666666" stroke-width="1.2" />
+    <text x="125" y="21" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#000000" text-anchor="middle">Order</text>
+    
+    <!-- Attributes Compartment -->
+    <g transform="translate(10, 37)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String orderId</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+double totalAmount</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String status</text>
+      <text x="0" y="68.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String deliveryPartnerId</text>
+      <text x="0" y="87" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String deliveryStatus</text>
+      <text x="0" y="105.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String deliveryOtp</text>
+      <text x="0" y="124" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String pickupAddress</text>
+      <text x="0" y="142.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String shippingAddress</text>
+    </g>
+    
+    <!-- Methods Divider -->
+    <line x1="0" y1="190" x2="250" y2="190" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Methods Compartment -->
+    <g transform="translate(10, 195)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+addToCart()</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+checkoutCart()</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+updateOrderStatus()</text>
+    </g>
+  </g>
+
+  <!-- Box: Review -->
+  <g id="box_review" transform="translate(825, 645)">
+    <rect x="0" y="0" width="255" height="163" fill="#ffffff" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Header Compartment -->
+    <rect x="0" y="0" width="255" height="32" fill="#eeeeee" stroke="#666666" stroke-width="1.2" />
+    <text x="127.5" y="21" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="14" font-weight="bold" fill="#000000" text-anchor="middle">Review</text>
+    
+    <!-- Attributes Compartment -->
+    <g transform="translate(10, 37)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String reviewId</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+int rating</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+String comment</text>
+    </g>
+    
+    <!-- Methods Divider -->
+    <line x1="0" y1="97.5" x2="255" y2="97.5" stroke="#666666" stroke-width="1.2" />
+    
+    <!-- Methods Compartment -->
+    <g transform="translate(10, 102.5)">
+      <text x="0" y="13" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+createReview()</text>
+      <text x="0" y="31.5" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+getUserReviews()</text>
+      <text x="0" y="50" font-family="'Segoe UI', Helvetica, Arial, sans-serif" font-size="12.5" fill="#000000">+toggleCompanyEndorsement()</text>
+    </g>
+  </g>
+
+  </svg>
+</body>
+</html>

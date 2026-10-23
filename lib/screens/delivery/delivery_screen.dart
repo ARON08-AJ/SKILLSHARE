@@ -5,6 +5,8 @@ import '../../models/order_model.dart';
 import '../../models/user_model.dart';
 import '../../models/skilled_user_profile.dart';
 import '../../services/firestore_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../utils/app_constants.dart';
 import '../../utils/app_helpers.dart';
 import '../../utils/app_dialog.dart';
 import '../../utils/modern_pickers.dart';
@@ -234,6 +236,9 @@ class _DeliveryCardState extends State<_DeliveryCard> {
   UserModel? _sellerUser;
   SkilledUserProfile? _sellerProfile;
   UserModel? _buyerUser;
+  String? _resolvedSellerAddress;
+  String? _resolvedSellerPhone;
+  String? _resolvedSellerName;
 
   @override
   void initState() {
@@ -258,13 +263,48 @@ class _DeliveryCardState extends State<_DeliveryCard> {
         fs.getUserById(widget.order.sellerId),
         fs.getSkilledUserProfile(widget.order.sellerId),
         fs.getUserById(widget.order.buyerId),
+        fs.resolveUserAddressSnapshot(widget.order.sellerId),
       ]);
       if (mounted) {
+        final sellerUser = futures[0] as UserModel?;
+        final sellerProfile = futures[1] as SkilledUserProfile?;
+        final buyerUser = futures[2] as UserModel?;
+        final sellerAddrSnap = futures[3] as Map<String, dynamic>?;
+
+        final resolvedAddr = (sellerAddrSnap?['address'] as String?)?.trim();
+        final resolvedPhone = (sellerAddrSnap?['phone'] as String?)?.trim();
+        final resolvedName = (sellerAddrSnap?['name'] as String?)?.trim();
+
         setState(() {
-          _sellerUser = futures[0] as UserModel?;
-          _sellerProfile = futures[1] as SkilledUserProfile?;
-          _buyerUser = futures[2] as UserModel?;
+          _sellerUser = sellerUser;
+          _sellerProfile = sellerProfile;
+          _buyerUser = buyerUser;
+          if (resolvedAddr != null && resolvedAddr.isNotEmpty) {
+            _resolvedSellerAddress = resolvedAddr;
+          }
+          if (resolvedPhone != null && resolvedPhone.isNotEmpty) {
+            _resolvedSellerPhone = resolvedPhone;
+          }
+          if (resolvedName != null && resolvedName.isNotEmpty) {
+            _resolvedSellerName = resolvedName;
+          }
         });
+
+        // If the order itself didn't have sellerAddress saved, backfill it in Firestore
+        if ((widget.order.sellerAddress == null ||
+                widget.order.sellerAddress!.trim().isEmpty) &&
+            resolvedAddr != null &&
+            resolvedAddr.isNotEmpty) {
+          try {
+            FirebaseFirestore.instance
+                .collection(AppConstants.ordersCollection)
+                .doc(widget.order.id)
+                .update({
+              'sellerAddress': resolvedAddr,
+              'pickupAddressSnapshot': sellerAddrSnap,
+            });
+          } catch (_) {}
+        }
       }
     } catch (_) {}
   }
@@ -318,19 +358,27 @@ class _DeliveryCardState extends State<_DeliveryCard> {
         (order.pickupAddressSnapshot?['address'] as String?)?.trim() ?? '';
     final sellerName = order.sellerName?.trim().isNotEmpty == true
         ? order.sellerName!.trim()
-        : (_sellerUser?.name.trim().isNotEmpty == true
-            ? _sellerUser!.name.trim()
-            : 'Skilled Seller');
-    final sellerPhone = _sellerUser?.phone?.trim() ?? '';
+        : (_resolvedSellerName?.isNotEmpty == true
+            ? _resolvedSellerName!
+            : (_sellerUser?.name.trim().isNotEmpty == true
+                ? _sellerUser!.name.trim()
+                : 'Skilled Seller'));
+    final sellerPhone = _sellerUser?.phone?.trim().isNotEmpty == true
+        ? _sellerUser!.phone!.trim()
+        : (_resolvedSellerPhone?.isNotEmpty == true
+            ? _resolvedSellerPhone!
+            : ((order.pickupAddressSnapshot?['phone'] as String?)?.trim() ?? ''));
     final sellerAddress = snapshotSellerAddr.isNotEmpty
         ? snapshotSellerAddr
         : (order.sellerAddress?.trim().isNotEmpty == true
             ? order.sellerAddress!.trim()
-            : (_sellerProfile?.address?.trim().isNotEmpty == true
-                ? _sellerProfile!.address!.trim()
-                : (_sellerProfile?.city?.trim().isNotEmpty == true
-                    ? _sellerProfile!.city!.trim()
-                    : 'Seller address not available')));
+            : (_resolvedSellerAddress?.isNotEmpty == true
+                ? _resolvedSellerAddress!
+                : (_sellerProfile?.address?.trim().isNotEmpty == true
+                    ? _sellerProfile!.address!.trim()
+                    : (_sellerProfile?.city?.trim().isNotEmpty == true
+                        ? _sellerProfile!.city!.trim()
+                        : 'Seller address not available'))));
 
     final snapshotBuyerAddr =
         (order.deliveryAddressSnapshot?['address'] as String?)?.trim() ?? '';

@@ -2578,109 +2578,134 @@ class FirestoreService {
     double? longitude;
     String phone = '';
 
-    try {
-      // 1. Check users collection
-      final userDoc = await _firestore
-          .collection(AppConstants.usersCollection)
-          .doc(userId)
-          .get();
-      if (userDoc.exists && userDoc.data() != null) {
-        final data = userDoc.data()!;
-        name = (data['name'] ?? data['displayName'] ?? '').toString().trim();
-        phone = (data['phone'] ?? '').toString().trim();
-        final addr = (data['address'] ?? data['location'] ?? '').toString().trim();
-        if (addr.isNotEmpty) address = addr;
-        if (data['city'] != null) city = data['city'].toString().trim();
-        if (data['state'] != null) state = data['state'].toString().trim();
-        if (data['pincode'] != null) pincode = data['pincode'].toString().trim();
-      }
-
-      // 2. Check skilled_users profile
-      final skilledDoc = await _firestore
-          .collection(AppConstants.skilledUsersCollection)
-          .doc(userId)
-          .get();
-      if (skilledDoc.exists && skilledDoc.data() != null) {
-        final data = skilledDoc.data()!;
-        if (name.isEmpty && data['name'] != null) {
-          name = data['name'].toString().trim();
-        }
-        final skilledAddr =
-            (data['address'] ?? data['location'] ?? '').toString().trim();
-        if (skilledAddr.isNotEmpty &&
-            (address.isEmpty || skilledAddr.length >= address.length)) {
-          address = skilledAddr;
-        }
-        if (city.isEmpty && data['city'] != null) {
-          city = data['city'].toString().trim();
-        }
-        if (state.isEmpty && data['state'] != null) {
-          state = data['state'].toString().trim();
-        }
-        if (pincode.isEmpty && (data['pincode'] ?? data['postalCode']) != null) {
-          pincode = (data['pincode'] ?? data['postalCode']).toString().trim();
-        }
-        if (data['latitude'] != null) {
-          latitude = (data['latitude'] as num).toDouble();
-        }
-        if (data['longitude'] != null) {
-          longitude = (data['longitude'] as num).toDouble();
-        }
-      }
-
-      // 3. Check customer_profiles
-      final custDoc = await _firestore
-          .collection(AppConstants.customerProfilesCollection)
-          .doc(userId)
-          .get();
-      if (custDoc.exists && custDoc.data() != null) {
-        final data = custDoc.data()!;
-        final custAddr =
-            (data['address'] ?? data['location'] ?? '').toString().trim();
-        if (custAddr.isNotEmpty &&
-            (address.isEmpty || custAddr.length >= address.length)) {
-          address = custAddr;
-        }
-        if (city.isEmpty && data['city'] != null) {
-          city = data['city'].toString().trim();
-        }
-        if (state.isEmpty && data['state'] != null) {
-          state = data['state'].toString().trim();
-        }
-        if (pincode.isEmpty && (data['pincode'] ?? data['postalCode']) != null) {
-          pincode = (data['pincode'] ?? data['postalCode']).toString().trim();
-        }
-        if (latitude == null && data['latitude'] != null) {
-          latitude = (data['latitude'] as num).toDouble();
-        }
-        if (longitude == null && data['longitude'] != null) {
-          longitude = (data['longitude'] as num).toDouble();
-        }
-      }
-
-      // 4. Check company_profiles
-      final compDoc = await _firestore
-          .collection(AppConstants.companyProfilesCollection)
-          .doc(userId)
-          .get();
-      if (compDoc.exists && compDoc.data() != null) {
-        final data = compDoc.data()!;
-        final compAddr = (data['headOfficeLocation'] ??
-                data['address'] ??
-                data['location'] ??
+    void extractFromData(Map<String, dynamic> data) {
+      if (name.isEmpty) {
+        final candidateName = (data['name'] ??
+                data['displayName'] ??
+                data['fullName'] ??
+                data['userName'] ??
                 '')
             .toString()
             .trim();
-        if (compAddr.isNotEmpty && address.isEmpty) {
-          address = compAddr;
+        if (candidateName.isNotEmpty) name = candidateName;
+      }
+      if (phone.isEmpty) {
+        final candidatePhone = (data['phone'] ??
+                data['phoneNumber'] ??
+                data['mobile'] ??
+                data['contactPhone'] ??
+                '')
+            .toString()
+            .trim();
+        if (candidatePhone.isNotEmpty) phone = candidatePhone;
+      }
+      final candidateAddr = (data['address'] ??
+              data['location'] ??
+              data['pickupAddress'] ??
+              data['shopAddress'] ??
+              data['fullAddress'] ??
+              data['streetAddress'] ??
+              '')
+          .toString()
+          .trim();
+      if (candidateAddr.isNotEmpty &&
+          (address.isEmpty || candidateAddr.length >= address.length)) {
+        address = candidateAddr;
+      }
+      if (city.isEmpty && data['city'] != null) {
+        final c = data['city'].toString().trim();
+        if (c.isNotEmpty) city = c;
+      }
+      if (state.isEmpty && data['state'] != null) {
+        final s = data['state'].toString().trim();
+        if (s.isNotEmpty) state = s;
+      }
+      if (pincode.isEmpty &&
+          (data['pincode'] ??
+                  data['postalCode'] ??
+                  data['pinCode'] ??
+                  data['zip']) !=
+              null) {
+        final p = (data['pincode'] ??
+                data['postalCode'] ??
+                data['pinCode'] ??
+                data['zip'])
+            .toString()
+            .trim();
+        if (p.isNotEmpty) pincode = p;
+      }
+      if (data['verificationData'] is Map) {
+        final vd = Map<String, dynamic>.from(data['verificationData'] as Map);
+        final vAddr = (vd['address'] ??
+                vd['location'] ??
+                vd['aadhaarAddress'] ??
+                vd['registeredAddress'] ??
+                '')
+            .toString()
+            .trim();
+        if (vAddr.isNotEmpty && address.isEmpty) address = vAddr;
+        if (city.isEmpty && vd['city'] != null) {
+          city = vd['city'].toString().trim();
         }
-        if (city.isEmpty && data['city'] != null) {
-          city = data['city'].toString().trim();
+        if (state.isEmpty && vd['state'] != null) {
+          state = vd['state'].toString().trim();
         }
-        if (state.isEmpty && data['state'] != null) {
-          state = data['state'].toString().trim();
+        if (pincode.isEmpty &&
+            (vd['pincode'] ?? vd['postalCode'] ?? vd['pinCode']) != null) {
+          pincode = (vd['pincode'] ?? vd['postalCode'] ?? vd['pinCode'])
+              .toString()
+              .trim();
         }
       }
+      if (data['shopSettings'] is Map) {
+        final ss = Map<String, dynamic>.from(data['shopSettings'] as Map);
+        final sAddr = (ss['address'] ??
+                ss['location'] ??
+                ss['shopAddress'] ??
+                ss['pickupAddress'] ??
+                '')
+            .toString()
+            .trim();
+        if (sAddr.isNotEmpty && address.isEmpty) address = sAddr;
+      }
+      if (latitude == null && data['latitude'] != null) {
+        latitude = (data['latitude'] as num).toDouble();
+      }
+      if (longitude == null && data['longitude'] != null) {
+        longitude = (data['longitude'] as num).toDouble();
+      }
+    }
+
+    Future<void> checkCollection(String collName) async {
+      try {
+        final coll = _firestore.collection(collName);
+        final doc = await coll.doc(userId).get();
+        if (doc.exists && doc.data() != null) {
+          extractFromData(doc.data()!);
+        } else {
+          // Fallback for docs created with auto-id
+          final snap = await coll.where('userId', isEqualTo: userId).limit(1).get();
+          if (snap.docs.isNotEmpty) {
+            extractFromData(snap.docs.first.data());
+          } else {
+            final uidSnap =
+                await coll.where('uid', isEqualTo: userId).limit(1).get();
+            if (uidSnap.docs.isNotEmpty) {
+              extractFromData(uidSnap.docs.first.data());
+            }
+          }
+        }
+      } catch (e) {
+        debugPrint('Error resolving address from $collName for $userId: $e');
+      }
+    }
+
+    try {
+      // Check in priority order: skilled_users, users, customer_profiles, company_profiles
+      await checkCollection(AppConstants.skilledUsersCollection);
+      await checkCollection(AppConstants.usersCollection);
+      await checkCollection(AppConstants.customerProfilesCollection);
+      await checkCollection(AppConstants.companyProfilesCollection);
     } catch (e) {
       debugPrint('Error resolving address snapshot for $userId: $e');
     }
