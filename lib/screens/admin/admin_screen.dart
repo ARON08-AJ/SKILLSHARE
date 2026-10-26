@@ -1921,24 +1921,10 @@ class _UserCard extends StatelessWidget {
     return '(no email)';
   }
 
-  String? get _maskedAadhaar {
-    final vData = skilledProfileData?['verificationData'];
-    if (vData is Map) {
-      final masked = (vData['maskedAadhaar'] as String?)?.trim();
-      if (masked != null && masked.isNotEmpty) return masked;
-      final rawNumber = (vData['aadhaarNumber'] as String?)?.trim();
-      if (rawNumber != null && rawNumber.length >= 4) {
-        return 'XXXX XXXX ';
-      }
-    }
-    return null;
-  }
-
   @override
   Widget build(BuildContext context) {
     final isSuspended = user.isSuspended ?? false;
     final isActive = user.isActive;
-    final aadhaar = _maskedAadhaar;
 
     return TweenAnimationBuilder<double>(
       tween: Tween(begin: 0, end: 1),
@@ -2130,24 +2116,7 @@ class _UserCard extends StatelessWidget {
                           ),
                       ],
                     ),
-                    if (aadhaar != null) ...[
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Icon(Icons.credit_card,
-                              size: 13, color: Colors.blueGrey[600]),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Aadhaar: ',
-                            style: TextStyle(
-                              fontSize: 11,
-                              color: Colors.blueGrey[800],
-                              fontWeight: FontWeight.w600,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
+
                     if (isPendingVerification) ...[
                       const SizedBox(height: 8),
                       Wrap(

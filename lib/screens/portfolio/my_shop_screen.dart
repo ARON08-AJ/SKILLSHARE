@@ -235,101 +235,167 @@ class _MyShopScreenState extends State<MyShopScreen>
   Widget _buildProductCard(ProductModel product) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
-      child: ListTile(
-        contentPadding: const EdgeInsets.all(12),
-        leading: product.images.isNotEmpty
-            ? ClipRRect(
-                borderRadius: BorderRadius.circular(8),
-                child: WebImageLoader.loadImage(
-                  imageUrl: product.images.first,
-                  width: 80,
-                  height: 80,
-                  fit: BoxFit.cover,
+      elevation: 2,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _viewProduct(product),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // 1. Leading Image with fallback & proper sizing
+              ClipRRect(
+                borderRadius: BorderRadius.circular(10),
+                child: SizedBox(
+                  width: 72,
+                  height: 72,
+                  child: WebImageLoader.loadImage(
+                    imageUrl: product.images.isNotEmpty
+                        ? product.images.first
+                        : ProductModel.getSuggestedImageUrl(
+                            product.name, product.category),
+                    width: 72,
+                    height: 72,
+                    fit: BoxFit.cover,
+                    placeholder: Container(
+                      color: Colors.grey[200],
+                      child: const Center(
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Color(0xFFE91E63),
+                        ),
+                      ),
+                    ),
+                    errorWidget: Container(
+                      color: const Color(0xFFFCE4EC),
+                      child: Icon(
+                        product.isService
+                            ? Icons.design_services_rounded
+                            : Icons.shopping_bag_outlined,
+                        color: const Color(0xFFC2185B),
+                        size: 30,
+                      ),
+                    ),
+                  ),
                 ),
-              )
-            : Container(
-                width: 80,
-                height: 80,
-                decoration: BoxDecoration(
-                  color: Colors.grey[300],
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(Icons.image, color: Colors.grey[600]),
               ),
-        title: Text(
-          product.name,
-          style: const TextStyle(fontWeight: FontWeight.bold),
-        ),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const SizedBox(height: 5),
-            Row(
-              children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                  decoration: BoxDecoration(
-                    color: product.isService
-                        ? const Color(0xFF9C27B0).withValues(alpha: 0.12)
-                        : const Color(0xFFE91E63).withValues(alpha: 0.12),
-                    borderRadius: BorderRadius.circular(4),
-                    border: Border.all(
-                      color: product.isService
-                          ? const Color(0xFF9C27B0).withValues(alpha: 0.3)
-                          : const Color(0xFFE91E63).withValues(alpha: 0.3),
-                      width: 1,
+              const SizedBox(width: 12),
+
+              // 2. Middle Details (Title, Type Tag, Price, Stock)
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      product.name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 15,
+                        color: Color(0xFF263238),
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
-                  ),
-                  child: Text(
-                    product.isService ? 'Service' : 'Product',
-                    style: TextStyle(
-                      color: product.isService
-                          ? const Color(0xFF9C27B0)
-                          : const Color(0xFFE91E63),
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: product.isService
+                                ? const Color(0xFF9C27B0)
+                                    .withValues(alpha: 0.12)
+                                : const Color(0xFFE91E63)
+                                    .withValues(alpha: 0.12),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                              color: product.isService
+                                  ? const Color(0xFF9C27B0)
+                                      .withValues(alpha: 0.3)
+                                  : const Color(0xFFE91E63)
+                                      .withValues(alpha: 0.3),
+                              width: 1,
+                            ),
+                          ),
+                          child: Text(
+                            product.isService ? 'Service' : 'Product',
+                            style: TextStyle(
+                              color: product.isService
+                                  ? const Color(0xFF9C27B0)
+                                  : const Color(0xFFE91E63),
+                              fontSize: 11,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '₹${product.price.toStringAsFixed(2)}',
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w700,
+                              fontSize: 13,
+                              color: Color(0xFF37474F),
+                            ),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
                     ),
+                    if (product.isPhysicalProduct) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Stock: ${product.stock}',
+                        style: TextStyle(
+                          color: product.stock > 0
+                              ? Colors.green[700]
+                              : Colors.red,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+
+              const SizedBox(width: 8),
+
+              // 3. Compact Action Buttons
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.edit_rounded,
+                        color: Color(0xFF1E88E5), size: 20),
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Edit',
+                    onPressed: () => _editProduct(product),
                   ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  '₹${product.price.toStringAsFixed(2)}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w700,
-                    fontSize: 13,
-                    color: Color(0xFF37474F),
+                  const SizedBox(width: 6),
+                  IconButton(
+                    icon: const Icon(Icons.delete_rounded,
+                        color: Color(0xFFE53935), size: 20),
+                    padding: const EdgeInsets.all(6),
+                    constraints: const BoxConstraints(),
+                    visualDensity: VisualDensity.compact,
+                    tooltip: 'Delete',
+                    onPressed: () => _deleteProduct(product),
                   ),
-                ),
-              ],
-            ),
-            if (product.isPhysicalProduct) ...[
-              const SizedBox(height: 4),
-              Text(
-                'Stock: ${product.stock}',
-                style: TextStyle(
-                  color: product.stock > 0 ? Colors.green[700] : Colors.red,
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                ),
+                ],
               ),
             ],
-          ],
+          ),
         ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.edit, color: Colors.blue),
-              onPressed: () => _editProduct(product),
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete, color: Colors.red),
-              onPressed: () => _deleteProduct(product),
-            ),
-          ],
-        ),
-        onTap: () => _viewProduct(product),
       ),
     );
   }
