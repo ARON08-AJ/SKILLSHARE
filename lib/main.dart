@@ -10,6 +10,7 @@ import 'providers/auth_provider.dart';
 import 'providers/app_lock_provider.dart';
 import 'providers/user_provider.dart';
 import 'services/admin_bootstrap_service.dart';
+import 'services/app_lock_service.dart';
 import 'screens/splash_screen.dart';
 import 'utils/app_theme.dart';
 import 'widgets/app_lock_gate.dart';
@@ -82,13 +83,34 @@ void main() async {
     // The app will show error states where Firebase is needed
   }
 
-  runApp(MyApp(firebaseInitialized: firebaseInitialized));
+  // Pre-load App Lock state before first frame so lock screen activates immediately
+  AppLockProvider? appLockProvider;
+  try {
+    final appLockService = AppLockService();
+    final initialLockConfig = await appLockService.loadConfig();
+    appLockProvider = AppLockProvider(
+      service: appLockService,
+      initialConfig: initialLockConfig,
+    );
+  } catch (e) {
+    debugPrint('AppLock initialization error: $e');
+  }
+
+  runApp(MyApp(
+    firebaseInitialized: firebaseInitialized,
+    appLockProvider: appLockProvider,
+  ));
 }
 
 class MyApp extends StatelessWidget {
   final bool firebaseInitialized;
+  final AppLockProvider? appLockProvider;
 
-  const MyApp({super.key, this.firebaseInitialized = true});
+  const MyApp({
+    super.key,
+    this.firebaseInitialized = true,
+    this.appLockProvider,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -133,7 +155,9 @@ class MyApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => UserProvider()),
-        ChangeNotifierProvider(create: (_) => AppLockProvider()),
+        ChangeNotifierProvider<AppLockProvider>.value(
+          value: appLockProvider ?? AppLockProvider(),
+        ),
       ],
       child: MaterialApp(
         title: 'SkillShare',

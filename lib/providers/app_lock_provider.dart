@@ -3,8 +3,18 @@ import 'package:flutter/foundation.dart';
 import '../services/app_lock_service.dart';
 
 class AppLockProvider extends ChangeNotifier {
-  AppLockProvider({AppLockService? service})
-      : _service = service ?? AppLockService();
+  AppLockProvider({
+    AppLockService? service,
+    AppLockConfig? initialConfig,
+  }) : _service = service ?? AppLockService() {
+    if (initialConfig != null) {
+      _enabled = initialConfig.enabled;
+      _type = initialConfig.type;
+      _secretHash = initialConfig.secretHash;
+      _sessionUnlocked = !_enabled;
+      _initialized = true;
+    }
+  }
 
   final AppLockService _service;
 
@@ -17,16 +27,21 @@ class AppLockProvider extends ChangeNotifier {
   bool get initialized => _initialized;
   bool get enabled => _enabled;
   String get type => _type;
-  bool get requiresUnlock => _enabled && !_sessionUnlocked;
-  bool get isSecretType =>
-      _type == AppLockService.typePin || _type == AppLockService.typePattern;
+  bool get isPin => _type == AppLockService.typePin;
+  bool get isPattern => _type == AppLockService.typePattern;
+  bool get requiresUnlock =>
+      _initialized ? (_enabled && !_sessionUnlocked) : false;
 
   Future<void> initialize() async {
     final config = await _service.loadConfig();
     _enabled = config.enabled;
     _type = config.type;
     _secretHash = config.secretHash;
-    _sessionUnlocked = !_enabled;
+    if (!_initialized) {
+      _sessionUnlocked = !_enabled;
+    } else if (!_enabled) {
+      _sessionUnlocked = true;
+    }
     _initialized = true;
     notifyListeners();
   }
@@ -44,8 +59,10 @@ class AppLockProvider extends ChangeNotifier {
 
   void lockNow() {
     if (!_enabled) return;
-    _sessionUnlocked = false;
-    notifyListeners();
+    if (_sessionUnlocked) {
+      _sessionUnlocked = false;
+      notifyListeners();
+    }
   }
 
   Future<void> disable() async {
@@ -59,48 +76,26 @@ class AppLockProvider extends ChangeNotifier {
 
   Future<void> enablePin(String pin) async {
     await _service.setPinLock(pin);
+    final config = await _service.loadConfig();
     _enabled = true;
     _type = AppLockService.typePin;
-    _secretHash = (await _service.loadConfig()).secretHash;
+    _secretHash = config.secretHash;
     _sessionUnlocked = true;
     notifyListeners();
   }
 
   Future<void> enablePattern(String pattern) async {
     await _service.setPatternLock(pattern);
+    final config = await _service.loadConfig();
     _enabled = true;
     _type = AppLockService.typePattern;
-    _secretHash = (await _service.loadConfig()).secretHash;
+    _secretHash = config.secretHash;
     _sessionUnlocked = true;
     notifyListeners();
-  }
-
-  Future<bool> enableBiometric() async {
-    final canUse = await _service.canUseBiometric();
-    if (!canUse) return false;
-    final verified = await _service.authenticateBiometric();
-    if (!verified) return false;
-
-    await _service.setBiometricLock();
-    _enabled = true;
-    _type = AppLockService.typeBiometric;
-    _secretHash = null;
-    _sessionUnlocked = true;
-    notifyListeners();
-    return true;
   }
 
   bool tryUnlockWithSecret(String value) {
     final ok = _service.verifySecret(input: value, secretHash: _secretHash);
-    if (ok) {
-      _sessionUnlocked = true;
-      notifyListeners();
-    }
-    return ok;
-  }
-
-  Future<bool> tryUnlockWithBiometric() async {
-    final ok = await _service.authenticateBiometric();
     if (ok) {
       _sessionUnlocked = true;
       notifyListeners();

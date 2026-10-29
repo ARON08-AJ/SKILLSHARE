@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
-import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AppLockConfig {
@@ -21,7 +20,6 @@ class AppLockService {
   static const String typeNone = 'none';
   static const String typePin = 'pin';
   static const String typePattern = 'pattern';
-  static const String typeBiometric = 'biometric';
 
   static const _enabledKey = 'app_lock_enabled';
   static const _typeKey = 'app_lock_type';
@@ -29,24 +27,42 @@ class AppLockService {
   static const _hashVersionPrefix = 'v2';
   static const _hashRounds = 2048;
 
-  final LocalAuthentication _localAuth = LocalAuthentication();
-
   Future<SharedPreferences?> _safePrefs() async {
     try {
       return await SharedPreferences.getInstance();
     } catch (_) {
-      // If plugin channels are not ready on some devices/startup races,
-      // fail gracefully instead of crashing app initialization.
       return null;
     }
   }
 
   Future<AppLockConfig> loadConfig() async {
     final prefs = await _safePrefs();
+    final enabled = prefs?.getBool(_enabledKey) ?? false;
+    final type = prefs?.getString(_typeKey) ?? typeNone;
+    final secretHash = prefs?.getString(_secretHashKey);
+
+    // If type was legacy biometric or invalid, clean up and return disabled
+    if (type == 'biometric' || (type != typePin && type != typePattern)) {
+      if (enabled) {
+        await prefs?.setBool(_enabledKey, false);
+        await prefs?.setString(_typeKey, typeNone);
+        await prefs?.remove(_secretHashKey);
+      }
+      return const AppLockConfig(
+        enabled: false,
+        type: typeNone,
+        secretHash: null,
+      );
+    }
+
+    // Require valid secret hash if enabled
+    final isEffectivelyEnabled =
+        enabled && secretHash != null && secretHash.isNotEmpty;
+
     return AppLockConfig(
-      enabled: prefs?.getBool(_enabledKey) ?? false,
-      type: prefs?.getString(_typeKey) ?? typeNone,
-      secretHash: prefs?.getString(_secretHashKey),
+      enabled: isEffectivelyEnabled,
+      type: isEffectivelyEnabled ? type : typeNone,
+      secretHash: secretHash,
     );
   }
 
@@ -61,54 +77,19 @@ class AppLockService {
   Future<void> setPinLock(String pin) async {
     final prefs = await _safePrefs();
     if (prefs == null) return;
+    final cleanPin = pin.trim();
     await prefs.setBool(_enabledKey, true);
     await prefs.setString(_typeKey, typePin);
-    await prefs.setString(_secretHashKey, _buildSecretHash(pin.trim()));
+    await prefs.setString(_secretHashKey, _buildSecretHash(cleanPin));
   }
 
   Future<void> setPatternLock(String pattern) async {
     final prefs = await _safePrefs();
     if (prefs == null) return;
+    final cleanPattern = pattern.trim();
     await prefs.setBool(_enabledKey, true);
     await prefs.setString(_typeKey, typePattern);
-    await prefs.setString(_secretHashKey, _buildSecretHash(pattern.trim()));
-  }
-
-  Future<void> setBiometricLock() async {
-    final prefs = await _safePrefs();
-    if (prefs == null) return;
-    await prefs.setBool(_enabledKey, true);
-    await prefs.setString(_typeKey, typeBiometric);
-    await prefs.remove(_secretHashKey);
-  }
-
-  Future<bool> canUseBiometric() async {
-    try {
-      final supported = await _localAuth.isDeviceSupported();
-      final canCheck = await _localAuth.canCheckBiometrics;
-      final available = await _localAuth.getAvailableBiometrics();
-      return supported && canCheck && available.isNotEmpty;
-    } catch (_) {
-      return false;
-    }
-  }
-
-  Future<bool> authenticateBiometric() async {
-    try {
-      return await _localAuth.authenticate(
-        localizedReason: 'Authenticate to unlock SkillShare',
-        biometricOnly: true,
-        persistAcrossBackgrounding: true,
-      );
-    } on LocalAuthException catch (e) {
-      if (e.code == LocalAuthExceptionCode.noBiometricHardware ||
-          e.code == LocalAuthExceptionCode.noBiometricsEnrolled) {
-        return false;
-      }
-      return false;
-    } catch (_) {
-      return false;
-    }
+    await prefs.setString(_secretHashKey, _buildSecretHash(cleanPattern));
   }
 
   bool verifySecret({
