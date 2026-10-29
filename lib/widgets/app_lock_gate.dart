@@ -95,7 +95,6 @@ class _AppLockFullScreenState extends State<AppLockFullScreen> {
 
   String? _errorMessage;
   bool _isError = false;
-  String _currentPin = '';
 
   void _onPatternSubmit(String pattern) {
     final ok = widget.lock.tryUnlockWithSecret(pattern);
@@ -135,7 +134,6 @@ class _AppLockFullScreenState extends State<AppLockFullScreen> {
           setState(() {
             _isError = false;
             _errorMessage = null;
-            _currentPin = '';
           });
           _pinKey.currentState?.clear();
         }
@@ -144,7 +142,6 @@ class _AppLockFullScreenState extends State<AppLockFullScreen> {
       setState(() {
         _isError = false;
         _errorMessage = null;
-        _currentPin = '';
       });
     }
   }
@@ -252,48 +249,22 @@ class _AppLockFullScreenState extends State<AppLockFullScreen> {
                           },
                           onComplete: _onPatternSubmit,
                         )
-                      else ...[
+                      else
                         PinKeypadView(
                           key: _pinKey,
                           pinLength: 4,
-                          maxDigits: 6,
+                          maxDigits: 4,
                           isError: _isError,
                           onChanged: (pin) {
-                            setState(() {
-                              _currentPin = pin;
-                              if (_errorMessage != null) {
+                            if (_errorMessage != null) {
+                              setState(() {
                                 _isError = false;
                                 _errorMessage = null;
-                              }
-                            });
+                              });
+                            }
                           },
                           onComplete: _onPinSubmit,
                         ),
-                        // If user has a 5 or 6 digit PIN, provide an Unlock button
-                        if (_currentPin.length >= 4) ...[
-                          const SizedBox(height: 16),
-                          SizedBox(
-                            width: 200,
-                            height: 44,
-                            child: FilledButton(
-                              style: FilledButton.styleFrom(
-                                backgroundColor: const Color(0xFF1D4ED8),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                              ),
-                              onPressed: () => _onPinSubmit(_currentPin),
-                              child: const Text(
-                                'Unlock',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
                     ],
                   ),
                 ),

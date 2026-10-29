@@ -71,17 +71,18 @@ class PinKeypadViewState extends State<PinKeypadView>
   }
 
   void _onKeyPress(String key) {
-    if (_digits.length >= widget.maxDigits) return;
-
     HapticFeedback.lightImpact();
     setState(() {
+      if (widget.isError || _digits.length >= widget.pinLength) {
+        _digits.clear();
+      }
       _digits.add(key);
     });
 
     final currentPin = _digits.join();
     widget.onChanged?.call(currentPin);
 
-    // Auto-complete if reached pinLength or maxDigits
+    // Auto-complete if reached pinLength
     if (_digits.length == widget.pinLength) {
       widget.onComplete(currentPin);
     }
