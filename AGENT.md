@@ -42,3 +42,14 @@
 - "Approve Verification" and "Decline" (with rejection reason input) actions are located inside the detailed modal.
 - Approving or rejecting updates all corresponding collections (`users`, `skilled_users`, `company_profiles`) and dispatches an in-app notification to the user.
 
+### 6. App Lock System (Pattern & Numeric PIN)
+- **Zero-Biometrics**: Biometric and fingerprint lock options are completely disabled and removed per user requirements.
+- **Lock Methods**:
+  - **PIN Lock (Number)**: 4 to 6 digit numeric code entered via interactive `PinKeypadView` with animated dot indicators, haptic feedback, and auto-submit.
+  - **Pattern Lock**: Interactive 3x3 dot grid (`PatternLockView`) with custom gesture tracing, line connections, collinear dot auto-connection, haptic feedback, and error shake.
+- **Cold Start & Lifecycle Protection**:
+  - `AppLockConfig` is preloaded in `main()` before `runApp()`, ensuring `appLockProvider.sessionUnlocked = false` immediately when enabled so no child widgets/screens flash on app launch.
+  - `AppLockGate` keeps underlying child completely `Offstage` while locked to prevent data leaks or touch interactions, and uses `PopScope(canPop: false)` to prevent bypassing with the Android back button.
+  - `didChangeAppLifecycleState` listens for `paused`, `hidden`, and `inactive` lifecycle states and calls `lockNow()` so returning to the app from background/app switcher always demands unlock.
+
+
