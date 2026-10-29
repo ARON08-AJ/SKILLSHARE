@@ -1023,12 +1023,25 @@ class _UsersTabState extends State<_UsersTab> {
   }
 
   Future<void> _approveUserVerification(UserModel user) async {
+    final role = UserRoles.normalizeRole(user.role);
+    final String benefitText;
+    if (role == UserRoles.deliveryPartner) {
+      benefitText =
+          'This will mark their identity as verified and enable them to accept and fulfill delivery orders.';
+    } else if (role == UserRoles.company) {
+      benefitText =
+          'This will mark their business as verified and grant verified company status on the platform.';
+    } else {
+      benefitText =
+          'This will mark their identity as verified and grant them full selling privileges to open a shop and offer services.';
+    }
+
     final confirmed = await AppDialog.confirm(
       context,
       title: 'Approve Verification',
       message:
           'Approve verification for ${user.name.isNotEmpty ? user.name : user.email}?\n\n'
-          'This will mark their identity as verified and grant them full selling privileges to open a shop and add products.',
+          '$benefitText',
       confirmText: 'Approve',
       gradientColors: const [Color(0xFF2E7D32), Color(0xFF00897B)],
       icon: Icons.verified_user_rounded,
@@ -1175,12 +1188,25 @@ class _UsersTabState extends State<_UsersTab> {
   }
 
   Future<void> _revokeUserVerification(UserModel user) async {
+    final role = UserRoles.normalizeRole(user.role);
+    final String revokeDetail;
+    if (role == UserRoles.deliveryPartner) {
+      revokeDetail =
+          'Their verified status will be removed and they will not be able to accept delivery orders until re-verified.';
+    } else if (role == UserRoles.company) {
+      revokeDetail =
+          'Their verified status will be removed and their business privileges will be restricted until re-verified.';
+    } else {
+      revokeDetail =
+          'Their verified status will be removed and they will not be able to list new products until re-verified.';
+    }
+
     final confirmed = await AppDialog.confirm(
       context,
       title: 'Revoke Verification',
       message:
           'Revoke verification for ${user.name.isNotEmpty ? user.name : user.email}?\n\n'
-          'Their verified status will be removed and they will not be able to list new products until re-verified.',
+          '$revokeDetail',
       confirmText: 'Revoke',
       gradientColors: const [Color(0xFFE65100), Color(0xFFD32F2F)],
       icon: Icons.remove_moderator_rounded,
