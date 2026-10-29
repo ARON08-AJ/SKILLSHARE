@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:provider/provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'dart:io';
 import 'dart:typed_data';
 import '../../providers/user_provider.dart';
@@ -9,6 +10,7 @@ import '../../providers/auth_provider.dart';
 import '../../models/customer_profile.dart';
 import '../../services/cloudinary_service.dart';
 import '../../services/firestore_service.dart';
+import '../../utils/app_constants.dart';
 import '../../utils/app_dialog.dart';
 import '../../widgets/avatar_picker.dart';
 import '../../widgets/universal_avatar.dart';
@@ -37,6 +39,8 @@ class _CustomerSetupScreenState extends State<CustomerSetupScreen> {
   static const Color _neutralBorder = Color(0xFFD1D9E6);
 
   final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _phoneController = TextEditingController();
   final _bioController = TextEditingController();
   final _interestController = TextEditingController();
   final _locationController = TextEditingController();
@@ -81,7 +85,15 @@ class _CustomerSetupScreenState extends State<CustomerSetupScreen> {
 
   Future<void> _loadProfile() async {
     final userProvider = Provider.of<UserProvider>(context, listen: false);
+    final authProvider = Provider.of<AuthProvider>(context, listen: false);
     await userProvider.loadCustomerProfile(widget.userId);
+
+    final user = await FirestoreService().getUserById(widget.userId) ??
+        authProvider.currentUser;
+    if (user != null) {
+      _nameController.text = user.name;
+      _phoneController.text = user.phone ?? '';
+    }
 
     if (userProvider.customerProfile != null) {
       final profile = userProvider.customerProfile!;
@@ -104,6 +116,8 @@ class _CustomerSetupScreenState extends State<CustomerSetupScreen> {
 
   @override
   void dispose() {
+    _nameController.dispose();
+    _phoneController.dispose();
     _bioController.dispose();
     _interestController.dispose();
     _locationController.dispose();
@@ -228,6 +242,31 @@ class _CustomerSetupScreenState extends State<CustomerSetupScreen> {
       // Save animated avatar config to users collection
       if (_avatarConfig != null) {
         await FirestoreService().saveAvatarConfig(widget.userId, _avatarConfig);
+      }
+
+      final newName = _nameController.text.trim();
+      final newPhone = _phoneController.text.trim().isEmpty
+          ? null
+          : _phoneController.text.trim();
+      try {
+        await FirebaseFirestore.instance
+            .collection(AppConstants.usersCollection)
+            .doc(widget.userId)
+            .set({
+          if (newName.isNotEmpty) 'name': newName,
+          'phone': newPhone,
+          'updatedAt': FieldValue.serverTimestamp(),
+        }, SetOptions(merge: true));
+
+        if (authProvider.currentUser != null) {
+          final updatedUser = authProvider.currentUser!.copyWith(
+            name: newName.isNotEmpty ? newName : authProvider.currentUser!.name,
+            phone: newPhone,
+          );
+          await authProvider.updateProfile(updatedUser);
+        }
+      } catch (e) {
+        debugPrint('Failed to sync customer name and phone: $e');
       }
 
       if (effectiveProfileUrl != null) {
@@ -493,6 +532,40 @@ class _CustomerSetupScreenState extends State<CustomerSetupScreen> {
                       child: Column(
                         children: [
                           TextFormField(
+                            controller: _nameController,
+                            decoration: _inputDeco(
+                              label: 'Full Name',
+                              hint: 'Enter your name',
+                              icon: Icons.badge_outlined,
+                            ),
+                            validator: (value) {
+                              if (value == null || value.trim().isEmpty) {
+                                return 'Please enter your name';
+                              }
+                              return null;
+                            },
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _phoneController,
+                            keyboardType: TextInputType.phone,
+                            decoration: _inputDeco(
+                              label: 'Phone Number',
+                              hint: 'Contact mobile number',
+                              icon: Icons.phone_outlined,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
+                            controller: _locationController,
+                            decoration: _inputDeco(
+                              label: 'Delivery Address / Location',
+                              hint: 'House, street, area, city',
+                              icon: Icons.location_on_outlined,
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextFormField(
                             controller: _bioController,
                             decoration: _inputDeco(
                               label: 'Bio',
@@ -507,15 +580,6 @@ class _CustomerSetupScreenState extends State<CustomerSetupScreen> {
                               }
                               return null;
                             },
-                          ),
-                          const SizedBox(height: 12),
-                          TextFormField(
-                            controller: _locationController,
-                            decoration: _inputDeco(
-                              label: 'Address',
-                              hint: 'House / street / area',
-                              icon: Icons.location_on_outlined,
-                            ),
                           ),
                         ],
                       ),

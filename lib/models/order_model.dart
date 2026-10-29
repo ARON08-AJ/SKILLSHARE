@@ -44,6 +44,7 @@ class OrderModel {
   final String? serviceStatus; // requested, accepted, requirement_gathering, project_work, testing, review, finished, rejected, cancelled
   final List<Map<String, dynamic>> serviceTimeline;
   final String? workChatId;
+  final List<String> declinedPartnerIds;
 
   const OrderModel({
     required this.id,
@@ -85,6 +86,7 @@ class OrderModel {
     this.serviceStatus,
     this.serviceTimeline = const [],
     this.workChatId,
+    this.declinedPartnerIds = const [],
   });
 
   bool get isService =>
@@ -184,6 +186,11 @@ class OrderModel {
       serviceStatus: map['serviceStatus'] as String?,
       serviceTimeline: _parseServiceTimeline(map['serviceTimeline']),
       workChatId: map['workChatId'] as String?,
+      declinedPartnerIds: (map['declinedPartnerIds'] as List?)
+              ?.map((e) => e.toString().trim())
+              .where((e) => e.isNotEmpty)
+              .toList() ??
+          const [],
     );
   }
 
@@ -237,6 +244,8 @@ class OrderModel {
       if (serviceStatus != null) 'serviceStatus': serviceStatus,
       if (serviceTimeline.isNotEmpty) 'serviceTimeline': serviceTimeline,
       if (workChatId != null) 'workChatId': workChatId,
+      if (declinedPartnerIds.isNotEmpty)
+        'declinedPartnerIds': declinedPartnerIds,
     };
   }
 
@@ -280,6 +289,7 @@ class OrderModel {
     String? serviceStatus,
     List<Map<String, dynamic>>? serviceTimeline,
     String? workChatId,
+    List<String>? declinedPartnerIds,
   }) {
     return OrderModel(
       id: id ?? this.id,
@@ -326,6 +336,7 @@ class OrderModel {
       serviceStatus: serviceStatus ?? this.serviceStatus,
       serviceTimeline: serviceTimeline ?? this.serviceTimeline,
       workChatId: workChatId ?? this.workChatId,
+      declinedPartnerIds: declinedPartnerIds ?? this.declinedPartnerIds,
     );
   }
 }

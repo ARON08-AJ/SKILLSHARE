@@ -17,6 +17,7 @@ import '../../utils/app_dialog.dart';
 import '../../utils/user_roles.dart';
 import '../../widgets/universal_avatar.dart';
 import '../../widgets/app_popup.dart';
+import '../../utils/web_image_loader.dart';
 import 'admin_products_tab.dart';
 
 class AdminScreen extends StatefulWidget {
@@ -554,7 +555,7 @@ class _DashboardTab extends StatelessWidget {
             _QuickActionTile(
               icon: Icons.pending_actions,
               title: 'Pending Verifications',
-              subtitle: '${pendingVerifs.length} skilled user(s) pending',
+              subtitle: '${pendingVerifs.length} request(s) awaiting review',
               color: const Color(0xFF00695C),
               onTap: onOpenPendingVerifications,
             ),
@@ -731,6 +732,7 @@ class _UsersTabState extends State<_UsersTab> {
   Set<String> _pendingVerificationUserIds = <String>{};
   Set<String> _verifiedUserIds = <String>{};
   Map<String, Map<String, dynamic>> _skilledProfileByUserId = {};
+  Map<String, Map<String, dynamic>> _companyProfileByUserId = {};
   bool _isLoading = true;
   bool _isBulkCreatingUsers = false;
   String _searchQuery = '';
@@ -818,6 +820,65 @@ class _UsersTabState extends State<_UsersTab> {
       }
     }
 
+    // 2. Query company_profiles for company verification requests
+    final companySnapshot = await FirebaseFirestore.instance
+        .collection(AppConstants.companyProfilesCollection)
+        .limit(1000)
+        .get();
+
+    final companyProfileByAnyId = <String, Map<String, dynamic>>{};
+    for (final doc in companySnapshot.docs) {
+      final data = doc.data();
+      final status =
+          ((data['verificationStatus'] as String?) ?? '').toLowerCase().trim();
+      final isVerified = data['isVerified'] == true || status == 'approved';
+
+      final ids = <String>{
+        doc.id,
+        ((data['userId'] as String?) ?? '').trim(),
+      }..removeWhere((id) => id.isEmpty);
+
+      for (final id in ids) {
+        companyProfileByAnyId[id] = data;
+      }
+
+      if (isVerified) {
+        verifiedIdCandidates.addAll(ids);
+      } else if (status == 'pending' ||
+          status == 'submitted' ||
+          data['verificationData'] != null) {
+        pendingIdCandidates.addAll(ids);
+      }
+    }
+    _companyProfileByUserId = companyProfileByAnyId;
+
+    // 3. Detect Delivery Partners and any other users in allUsers with pending verification
+    for (final u in allUsers) {
+      final role = UserRoles.normalizeRole(u.role);
+      final status = (u.verificationStatus ?? '').toLowerCase().trim();
+      final hasDoc = u.documentUrl != null && u.documentUrl!.isNotEmpty;
+      final hasVerifData =
+          u.verificationData != null && (u.verificationData as Map).isNotEmpty;
+
+      if (role == UserRoles.deliveryPartner) {
+        if (u.isFullyVerified || u.isVerified == true || status == 'approved') {
+          verifiedIdCandidates.add(u.uid);
+        } else if (u.isPendingVerification ||
+            status == 'pending' ||
+            status == 'submitted' ||
+            hasDoc ||
+            hasVerifData) {
+          pendingIdCandidates.add(u.uid);
+        }
+      } else {
+        if (status == 'submitted' || status == 'pending') {
+          if (u.isVerified != true && status != 'approved') {
+            pendingIdCandidates.add(u.uid);
+          }
+        }
+      }
+    }
+
     _pendingVerificationUserIds = pendingIdCandidates;
     _verifiedUserIds = verifiedIdCandidates;
     _skilledProfileByUserId = skilledProfileByAnyId;
@@ -856,7 +917,10 @@ class _UsersTabState extends State<_UsersTab> {
       }
 
       var normalizedRole = UserRoles.normalizeRole(u.role);
-      if (isSkilled) {
+      if (normalizedRole == UserRoles.company ||
+          normalizedRole == UserRoles.deliveryPartner) {
+        // Retain specific company or delivery partner role
+      } else if (isSkilled) {
         normalizedRole = UserRoles.skilledPerson;
       } else if (normalizedRole == null || normalizedRole.isEmpty) {
         normalizedRole = UserRoles.customer;
@@ -902,24 +966,34 @@ class _UsersTabState extends State<_UsersTab> {
       );
     }).toList();
 
-    // Some older records can have pending skilled profiles without a matching
+    // Some older records can have pending skilled or company profiles without a matching
     // users document. Add lightweight fallback rows so pending filter is never empty.
     final existingUserIds = repairedUsers.map((u) => u.uid).toSet();
     final fallbackUsers = pendingIdCandidates
         .where((id) => !existingUserIds.contains(id))
         .map((id) {
-      final data = pendingProfileByAnyId[id] ?? const <String, dynamic>{};
+      final compData = companyProfileByAnyId[id];
+      final isComp = compData != null;
+      final data =
+          compData ?? pendingProfileByAnyId[id] ?? const <String, dynamic>{};
       final fallbackEmail = ((data['email'] as String?) ??
+              (data['contactEmail'] as String?) ??
               _knownAuthEmails[id] ??
               '')
           .trim();
+      final fallbackName = ((isComp
+              ? (data['companyName'] as String?)
+              : (data['name'] as String?)) ??
+          (isComp ? 'Pending Company' : 'Pending Skilled User')).trim();
       return UserModel(
         uid: id,
         email: fallbackEmail,
-        name: ((data['name'] as String?) ?? 'Pending Skilled User').trim(),
-        role: UserRoles.skilledPerson,
+        name: fallbackName,
+        role: isComp ? UserRoles.company : UserRoles.skilledPerson,
         phone: ((data['phone'] as String?) ?? '').trim(),
-        profilePhoto: ((data['profilePicture'] as String?) ?? '').trim(),
+        profilePhoto: (((isComp ? data['logoUrl'] : data['profilePicture'])
+                as String?) ??
+            '').trim(),
         createdAt:
             (data['createdAt'] as Timestamp?)?.toDate() ?? DateTime.now(),
         updatedAt:
@@ -1041,6 +1115,11 @@ class _UsersTabState extends State<_UsersTab> {
     final reason = reasonController.text.trim();
     reasonController.dispose();
 
+    await _rejectUserVerificationWithReason(user, reason);
+  }
+
+  Future<void> _rejectUserVerificationWithReason(
+      UserModel user, String reason) async {
     try {
       await widget.firestoreService
           .rejectVerification(user.uid, reason: reason);
@@ -1049,17 +1128,50 @@ class _UsersTabState extends State<_UsersTab> {
       AppPopup.show(
         context,
         message:
-            'Verification rejected for ${user.name.isNotEmpty ? user.name : "User"}',
+            'Verification declined for ${user.name.isNotEmpty ? user.name : "User"}',
         type: PopupType.info,
       );
     } catch (e) {
       if (!mounted) return;
       AppPopup.show(
         context,
-        message: 'Failed to reject verification: $e',
+        message: 'Failed to decline verification: $e',
         type: PopupType.error,
       );
     }
+  }
+
+  void _openVerificationDetails(UserModel user) {
+    final isPending = _pendingVerificationUserIds.contains(user.uid);
+    final isVerified = _verifiedUserIds.contains(user.uid);
+    final skilledData = _skilledProfileByUserId[user.uid];
+    final companyData = _companyProfileByUserId[user.uid];
+
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (ctx) => _VerificationDetailsDialog(
+        user: user,
+        isPending: isPending,
+        isVerified: isVerified,
+        skilledData: skilledData,
+        companyData: companyData,
+        onApprove: () async {
+          Navigator.of(ctx).pop();
+          await _approveUserVerification(user);
+        },
+        onReject: (String reason) async {
+          Navigator.of(ctx).pop();
+          await _rejectUserVerificationWithReason(user, reason);
+        },
+        onRevoke: isVerified
+            ? () async {
+                Navigator.of(ctx).pop();
+                await _revokeUserVerification(user);
+              }
+            : null,
+      ),
+    );
   }
 
   Future<void> _revokeUserVerification(UserModel user) async {
@@ -1792,6 +1904,8 @@ class _UsersTabState extends State<_UsersTab> {
                     isPendingVerification: isPending,
                     isVerified: isVerified,
                     skilledProfileData: skilledData,
+                    companyProfileData: _companyProfileByUserId[user.uid],
+                    onViewDetails: () => _openVerificationDetails(user),
                     onEdit: () => _editUser(user),
                     onSuspend: () => _toggleSuspend(user),
                     onDelete: () => _deleteAccount(user),
@@ -1868,6 +1982,8 @@ class _UserCard extends StatelessWidget {
   final bool isPendingVerification;
   final bool isVerified;
   final Map<String, dynamic>? skilledProfileData;
+  final Map<String, dynamic>? companyProfileData;
+  final VoidCallback? onViewDetails;
   final VoidCallback onEdit;
   final VoidCallback onSuspend;
   final VoidCallback onDelete;
@@ -1881,6 +1997,8 @@ class _UserCard extends StatelessWidget {
     required this.isPendingVerification,
     required this.isVerified,
     this.skilledProfileData,
+    this.companyProfileData,
+    this.onViewDetails,
     required this.onEdit,
     required this.onSuspend,
     required this.onDelete,
@@ -1936,334 +2054,1317 @@ class _UserCard extends StatelessWidget {
           child: Opacity(opacity: t, child: child),
         );
       },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [
-              Colors.white,
-              isPendingVerification
-                  ? const Color(0xFFFFF3E0)
-                  : _roleColor.withValues(alpha: 0.08),
-            ],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: isPendingVerification
-                ? const Color(0xFFFFB74D)
-                : _roleColor.withValues(alpha: 0.22),
-            width: isPendingVerification ? 1.5 : 1.0,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: isPendingVerification
-                  ? Colors.orange.withValues(alpha: 0.16)
-                  : _roleColor.withValues(alpha: 0.12),
-              blurRadius: 10,
-              offset: const Offset(0, 3),
-            ),
-          ],
-        ),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              UniversalAvatar(
-                avatarConfig: user.avatarConfig,
-                photoUrl: user.profilePhoto,
-                fallbackName: user.name,
-                radius: 24,
-                animate: false,
+          onTap: onViewDetails,
+          child: Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                colors: [
+                  Colors.white,
+                  isPendingVerification
+                      ? const Color(0xFFFFF3E0)
+                      : _roleColor.withValues(alpha: 0.08),
+                ],
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isPendingVerification
+                    ? const Color(0xFFFFB74D)
+                    : _roleColor.withValues(alpha: 0.22),
+                width: isPendingVerification ? 1.5 : 1.0,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: isPendingVerification
+                      ? Colors.orange.withValues(alpha: 0.16)
+                      : _roleColor.withValues(alpha: 0.12),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(12),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  UniversalAvatar(
+                    avatarConfig: user.avatarConfig,
+                    photoUrl: user.profilePhoto,
+                    fallbackName: user.name,
+                    radius: 24,
+                    animate: false,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            user.name.trim().isNotEmpty
-                                ? user.name
-                                : 'Unknown User',
-                            style: const TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 15,
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                user.name.trim().isNotEmpty
+                                    ? user.name
+                                    : 'Unknown User',
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 15,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                             ),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
+                            if (isSuspended)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: Colors.red[50],
+                                  borderRadius: BorderRadius.circular(6),
+                                ),
+                                child: const Text('SUSPENDED',
+                                    style: TextStyle(
+                                        color: Colors.red,
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.bold)),
+                              ),
+                          ],
                         ),
-                        if (isSuspended)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.red[50],
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: const Text('SUSPENDED',
+                        Text(
+                          _effectiveEmail,
+                          style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 5),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 6,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: _roleColor.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                _roleLabel,
                                 style: TextStyle(
-                                    color: Colors.red,
-                                    fontSize: 10,
-                                    fontWeight: FontWeight.bold)),
-                          ),
-                      ],
-                    ),
-                    Text(
-                      _effectiveEmail,
-                      style: TextStyle(fontSize: 12, color: Colors.grey[600]),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 5),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 6,
-                      children: [
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: _roleColor.withValues(alpha: 0.15),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            _roleLabel,
-                            style: TextStyle(
-                                color: _roleColor,
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: isActive
-                                ? Colors.green.withValues(alpha: 0.14)
-                                : Colors.grey.withValues(alpha: 0.2),
-                            borderRadius: BorderRadius.circular(10),
-                          ),
-                          child: Text(
-                            isActive ? 'ACTIVE' : 'INACTIVE',
-                            style: TextStyle(
-                              color: isActive
-                                  ? Colors.green[700]
-                                  : Colors.grey[700],
-                              fontSize: 11,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-                        ),
-                        if (isVerified)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFDFF5E7),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                  color: const Color(0xFFA5D6A7)),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.verified_rounded,
-                                    size: 12, color: Color(0xFF1B8A3E)),
-                                SizedBox(width: 4),
-                                Text(
-                                  'VERIFIED',
-                                  style: TextStyle(
-                                    color: Color(0xFF1B8A3E),
+                                    color: _roleColor,
                                     fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                                    fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: isActive
+                                    ? Colors.green.withValues(alpha: 0.14)
+                                    : Colors.grey.withValues(alpha: 0.2),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                isActive ? 'ACTIVE' : 'INACTIVE',
+                                style: TextStyle(
+                                  color: isActive
+                                      ? Colors.green[700]
+                                      : Colors.grey[700],
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
                                 ),
-                              ],
+                              ),
                             ),
-                          ),
-                        if (isPendingVerification)
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFFF1D6),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                  color: const Color(0xFFFFCC80)),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.hourglass_top_rounded,
-                                    size: 12, color: Color(0xFFB26A00)),
-                                SizedBox(width: 4),
-                                Text(
-                                  'PENDING VERIFICATION',
-                                  style: TextStyle(
-                                    color: Color(0xFFB26A00),
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w700,
-                                  ),
+                            if (isVerified)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFDFF5E7),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                      color: const Color(0xFFA5D6A7)),
                                 ),
-                              ],
-                            ),
-                          ),
-                      ],
-                    ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.verified_rounded,
+                                        size: 12, color: Color(0xFF1B8A3E)),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'VERIFIED',
+                                      style: TextStyle(
+                                        color: Color(0xFF1B8A3E),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            if (isPendingVerification)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFFFF1D6),
+                                  borderRadius: BorderRadius.circular(10),
+                                  border: Border.all(
+                                      color: const Color(0xFFFFCC80)),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.hourglass_top_rounded,
+                                        size: 12, color: Color(0xFFB26A00)),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'PENDING VERIFICATION',
+                                      style: TextStyle(
+                                        color: Color(0xFFB26A00),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
 
-                    if (isPendingVerification) ...[
-                      const SizedBox(height: 8),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 6,
-                        children: [
-                          ElevatedButton.icon(
-                            onPressed: onApproveVerification,
-                            icon: const Icon(Icons.check_circle_rounded,
-                                size: 15),
-                            label: const Text('Approve'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1B8A3E),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 14, vertical: 7),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
+                        if (isPendingVerification) ...[
+                          const SizedBox(height: 8),
+                          SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: onViewDetails,
+                              icon: const Icon(Icons.rate_review_outlined,
+                                  size: 15),
+                              label: const Text('Review Verification Details'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF1565C0),
+                                foregroundColor: Colors.white,
+                                elevation: 0,
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 8),
+                                minimumSize: Size.zero,
+                                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                textStyle: const TextStyle(
+                                    fontWeight: FontWeight.w700, fontSize: 12),
                               ),
-                              textStyle: const TextStyle(
-                                  fontWeight: FontWeight.w700, fontSize: 12),
-                            ),
-                          ),
-                          OutlinedButton.icon(
-                            onPressed: onRejectVerification,
-                            icon: const Icon(Icons.cancel_rounded, size: 15),
-                            label: const Text('Reject'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFFC62828),
-                              side: const BorderSide(color: Color(0xFFEF9A9A)),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 12, vertical: 7),
-                              minimumSize: Size.zero,
-                              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              textStyle: const TextStyle(
-                                  fontWeight: FontWeight.w600, fontSize: 12),
                             ),
                           ),
                         ],
+                      ],
+                    ),
+                  ),
+                  PopupMenuButton<String>(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    color: Colors.white,
+                    elevation: 8,
+                    onSelected: (v) {
+                      if (v == 'view_details') onViewDetails?.call();
+                      if (v == 'approve') onApproveVerification?.call();
+                      if (v == 'reject') onRejectVerification?.call();
+                      if (v == 'revoke') onRevokeVerification?.call();
+                      if (v == 'edit') onEdit();
+                      if (v == 'suspend') onSuspend();
+                      if (v == 'delete') onDelete();
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                        value: 'view_details',
+                        child: Row(
+                          children: [
+                            Icon(Icons.visibility_outlined,
+                                color: Color(0xFF1565C0), size: 18),
+                            SizedBox(width: 8),
+                            Text('View Details',
+                                style: TextStyle(
+                                    color: Color(0xFF1565C0),
+                                    fontWeight: FontWeight.w600)),
+                          ],
+                        ),
+                      ),
+                      if (isPendingVerification) ...[
+                        const PopupMenuItem(
+                          value: 'approve',
+                          child: Row(
+                            children: [
+                              Icon(Icons.verified_rounded,
+                                  color: Color(0xFF1B8A3E), size: 18),
+                              SizedBox(width: 8),
+                              Text('Approve Verification',
+                                  style: TextStyle(
+                                      color: Color(0xFF1B8A3E),
+                                      fontWeight: FontWeight.w600)),
+                            ],
+                          ),
+                        ),
+                        const PopupMenuItem(
+                          value: 'reject',
+                          child: Row(
+                            children: [
+                              Icon(Icons.cancel_rounded,
+                                  color: Color(0xFFC62828), size: 18),
+                              SizedBox(width: 8),
+                              Text('Reject Verification',
+                                  style: TextStyle(color: Color(0xFFC62828))),
+                            ],
+                          ),
+                        ),
+                      ],
+                      if (isVerified)
+                        const PopupMenuItem(
+                          value: 'revoke',
+                          child: Row(
+                            children: [
+                              Icon(Icons.remove_moderator_rounded,
+                                  color: Color(0xFFE65100), size: 18),
+                              SizedBox(width: 8),
+                              Text('Revoke Verification',
+                                  style: TextStyle(color: Color(0xFFE65100))),
+                            ],
+                          ),
+                        ),
+                      const PopupMenuItem(
+                        value: 'edit',
+                        child: Row(
+                          children: [
+                            Icon(Icons.edit, color: Color(0xFF1565C0), size: 18),
+                            SizedBox(width: 8),
+                            Text('Edit User'),
+                          ],
+                        ),
+                      ),
+                      PopupMenuItem(
+                        value: 'suspend',
+                        child: Row(
+                          children: [
+                            Icon(
+                              isSuspended
+                                  ? Icons.check_circle_outline
+                                  : Icons.block,
+                              color: isSuspended ? Colors.green : Colors.orange,
+                              size: 18,
+                            ),
+                            const SizedBox(width: 8),
+                            Text(isSuspended ? 'Reactivate' : 'Suspend'),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'delete',
+                        child: Row(
+                          children: [
+                            Icon(Icons.delete, color: Colors.red, size: 18),
+                            SizedBox(width: 8),
+                            Text('Delete Account',
+                                style: TextStyle(color: Colors.red)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _VerificationDetailsDialog extends StatefulWidget {
+  final UserModel user;
+  final bool isPending;
+  final bool isVerified;
+  final Map<String, dynamic>? skilledData;
+  final Map<String, dynamic>? companyData;
+  final VoidCallback onApprove;
+  final ValueChanged<String> onReject;
+  final VoidCallback? onRevoke;
+
+  const _VerificationDetailsDialog({
+    required this.user,
+    required this.isPending,
+    required this.isVerified,
+    this.skilledData,
+    this.companyData,
+    required this.onApprove,
+    required this.onReject,
+    this.onRevoke,
+  });
+
+  @override
+  State<_VerificationDetailsDialog> createState() =>
+      _VerificationDetailsDialogState();
+}
+
+class _VerificationDetailsDialogState
+    extends State<_VerificationDetailsDialog> {
+  bool _isRejecting = false;
+  final TextEditingController _reasonController = TextEditingController(
+    text: 'Verification details did not meet platform criteria.',
+  );
+
+  @override
+  void dispose() {
+    _reasonController.dispose();
+    super.dispose();
+  }
+
+  Color _getRoleColor(String? role) {
+    switch (role) {
+      case UserRoles.customer:
+        return const Color(0xFF2E7D32);
+      case UserRoles.skilledPerson:
+        return const Color(0xFFE65100);
+      case UserRoles.company:
+        return const Color(0xFF4A148C);
+      case UserRoles.deliveryPartner:
+        return const Color(0xFF00838F);
+      default:
+        return const Color(0xFF455A64);
+    }
+  }
+
+  void _openImageViewer(String imageUrl) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black87,
+      builder: (ctx) => _DocumentImageViewerDialog(imageUrl: imageUrl),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final role = UserRoles.normalizeRole(widget.user.role) ??
+        (widget.user.name.trim().toLowerCase() == 'aron'
+            ? UserRoles.skilledPerson
+            : UserRoles.customer);
+    final roleColor = _getRoleColor(role);
+    final userVerif = widget.user.verificationData ?? const <String, dynamic>{};
+    final skilled = widget.skilledData ?? const <String, dynamic>{};
+    final company = widget.companyData ?? const <String, dynamic>{};
+    final skilledVerif =
+        (skilled['verificationData'] as Map<String, dynamic>?) ??
+            const <String, dynamic>{};
+    final companyVerif =
+        (company['verificationData'] as Map<String, dynamic>?) ??
+            const <String, dynamic>{};
+
+    final docUrl = widget.user.documentUrl ??
+        (userVerif['documentUrl'] as String?) ??
+        (userVerif['licenseUrl'] as String?) ??
+        (userVerif['idProofUrl'] as String?) ??
+        (skilled['documentUrl'] as String?) ??
+        (skilledVerif['documentUrl'] as String?) ??
+        (skilledVerif['idProofUrl'] as String?) ??
+        (company['documentUrl'] as String?) ??
+        (companyVerif['documentUrl'] as String?) ??
+        (companyVerif['businessDocUrl'] as String?);
+
+    final rejectionReason = widget.user.rejectionReason ??
+        (skilled['rejectionReason'] as String?) ??
+        (company['rejectionReason'] as String?);
+
+    final size = MediaQuery.of(context).size;
+
+    return Dialog(
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+      elevation: 16,
+      clipBehavior: Clip.antiAlias,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 640,
+          maxHeight: size.height * 0.88,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Top Header
+            Container(
+              padding: const EdgeInsets.fromLTRB(20, 18, 14, 18),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    roleColor,
+                    Color.lerp(roleColor, Colors.black, 0.25) ?? roleColor,
+                  ],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+              child: Row(
+                children: [
+                  UniversalAvatar(
+                    avatarConfig: widget.user.avatarConfig,
+                    photoUrl: widget.user.profilePhoto,
+                    fallbackName: widget.user.name,
+                    radius: 26,
+                    animate: false,
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.user.name.trim().isNotEmpty
+                              ? widget.user.name
+                              : 'Pending Applicant',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          widget.user.email.isNotEmpty
+                              ? widget.user.email
+                              : '(no email specified)',
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.85),
+                            fontSize: 13,
+                          ),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.25),
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                UserRoles.getDisplayName(role),
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            if (widget.isVerified)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFF2E7D32),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.verified,
+                                        size: 12, color: Colors.white),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'VERIFIED',
+                                      style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            else if (widget.isPending)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFF57C00),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.hourglass_top,
+                                        size: 12, color: Colors.white),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'PENDING REVIEW',
+                                      style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            else if (rejectionReason != null &&
+                                rejectionReason.isNotEmpty)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 8, vertical: 3),
+                                decoration: BoxDecoration(
+                                  color: const Color(0xFFC62828),
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.cancel,
+                                        size: 12, color: Colors.white),
+                                    SizedBox(width: 4),
+                                    Text(
+                                      'DECLINED',
+                                      style: TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 11,
+                                          fontWeight: FontWeight.w700),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.close, color: Colors.white),
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.of(context).pop(),
+                  ),
+                ],
+              ),
+            ),
+
+            // Scrollable Body
+            Flexible(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (rejectionReason != null &&
+                        rejectionReason.isNotEmpty &&
+                        !_isRejecting) ...[
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFEBEE),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFFFFCDD2)),
+                        ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(Icons.error_outline,
+                                color: Color(0xFFC62828), size: 20),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Previous Rejection Reason',
+                                    style: TextStyle(
+                                      color: Color(0xFFC62828),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    rejectionReason,
+                                    style: const TextStyle(
+                                      color: Color(0xFFB71C1C),
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Section 1: Registration & Account Information
+                    _buildSectionContainer(
+                      title: 'Registration & Account Info',
+                      icon: Icons.badge_outlined,
+                      color: roleColor,
+                      children: [
+                        _buildInfoRow('User ID', widget.user.uid,
+                            isMonospace: true),
+                        _buildInfoRow('Full Name',
+                            widget.user.name.isNotEmpty ? widget.user.name : '-'),
+                        _buildInfoRow('Email Address',
+                            widget.user.email.isNotEmpty ? widget.user.email : '-'),
+                        _buildInfoRow(
+                            'Phone Number',
+                            (widget.user.phone != null &&
+                                    widget.user.phone!.isNotEmpty)
+                                ? widget.user.phone!
+                                : '-'),
+                        _buildInfoRow(
+                          'Registered On',
+                          '${widget.user.createdAt.day.toString().padLeft(2, '0')}/${widget.user.createdAt.month.toString().padLeft(2, '0')}/${widget.user.createdAt.year}',
+                        ),
+                        _buildInfoRow(
+                          'Account Status',
+                          (widget.user.isSuspended ?? false)
+                              ? 'Suspended'
+                              : (widget.user.isActive ? 'Active' : 'Inactive'),
+                          valueColor: (widget.user.isSuspended ?? false)
+                              ? Colors.red
+                              : (widget.user.isActive
+                                  ? Colors.green[700]
+                                  : Colors.grey),
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(height: 16),
+
+                    // Section 2: Role-Specific Submitted Data
+                    if (role == UserRoles.deliveryPartner) ...[
+                      _buildSectionContainer(
+                        title: 'Delivery Partner Profile & Vehicle Details',
+                        icon: Icons.two_wheeler_outlined,
+                        color: roleColor,
+                        children: [
+                          _buildInfoRow(
+                            'Operating City',
+                            widget.user.operatingCity ??
+                                (userVerif['operatingCity'] as String?) ??
+                                'Not specified',
+                          ),
+                          _buildInfoRow(
+                            'Vehicle Type',
+                            widget.user.vehicleType ??
+                                (userVerif['vehicleType'] as String?) ??
+                                'Not specified',
+                          ),
+                          _buildInfoRow(
+                            'Vehicle Number',
+                            widget.user.vehicleNumber ??
+                                (userVerif['vehicleNumber'] as String?) ??
+                                'Not specified',
+                          ),
+                          _buildInfoRow(
+                            'Driving License / ID No.',
+                            widget.user.licenseNumber ??
+                                (userVerif['licenseNumber'] as String?) ??
+                                'Not specified',
+                          ),
+                          _buildInfoRow(
+                            'Submitted At',
+                            userVerif['submittedAt'] != null
+                                ? (userVerif['submittedAt'] as String).split('T').first
+                                : 'Recent',
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ] else if (role == UserRoles.skilledPerson) ...[
+                      _buildSectionContainer(
+                        title: 'Skilled Person Credentials & Services',
+                        icon: Icons.handyman_outlined,
+                        color: roleColor,
+                        children: [
+                          _buildInfoRow(
+                            'Profession / Headline',
+                            (skilled['headline'] as String?) ??
+                                (skilled['category'] as String?) ??
+                                'Not specified',
+                          ),
+                          _buildInfoRow(
+                            'Category',
+                            (skilled['category'] as String?) ?? 'General',
+                          ),
+                          _buildInfoRow(
+                            'Hourly Rate',
+                            skilled['hourlyRate'] != null
+                                ? '₹${skilled['hourlyRate']}/hr'
+                                : 'Not specified',
+                          ),
+                          _buildInfoRow(
+                            'Experience',
+                            skilled['experience'] != null
+                                ? '${skilled['experience']} yrs'
+                                : 'Not specified',
+                          ),
+                          _buildInfoRow(
+                            'Location / City',
+                            (skilled['city'] as String?) ??
+                                (skilled['location'] as String?) ??
+                                'Not specified',
+                          ),
+                          _buildInfoRow(
+                            'Aadhaar / Gov ID',
+                            (skilledVerif['aadhaarNumber'] as String?) ??
+                                (skilledVerif['maskedAadhaar'] as String?) ??
+                                (userVerif['aadhaarNumber'] as String?) ??
+                                (skilledVerif.isNotEmpty
+                                    ? 'Aadhaar e-KYC Verified'
+                                    : 'Not specified'),
+                          ),
+                          if (skilled['bio'] != null &&
+                              (skilled['bio'] as String).trim().isNotEmpty)
+                            _buildInfoRow('Bio / Summary', (skilled['bio'] as String).trim()),
+                          if ((skilled['skills'] as List<dynamic>?) != null &&
+                              (skilled['skills'] as List<dynamic>).isNotEmpty)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text('Skills Listed',
+                                      style: TextStyle(
+                                          fontSize: 12,
+                                          color: Colors.grey[600],
+                                          fontWeight: FontWeight.w500)),
+                                  const SizedBox(height: 6),
+                                  Wrap(
+                                    spacing: 6,
+                                    runSpacing: 6,
+                                    children: (skilled['skills'] as List<dynamic>)
+                                        .map((s) => Container(
+                                              padding: const EdgeInsets.symmetric(
+                                                  horizontal: 8, vertical: 3),
+                                              decoration: BoxDecoration(
+                                                color: roleColor.withValues(alpha: 0.1),
+                                                borderRadius:
+                                                    BorderRadius.circular(6),
+                                              ),
+                                              child: Text(
+                                                s.toString(),
+                                                style: TextStyle(
+                                                    color: roleColor,
+                                                    fontSize: 12,
+                                                    fontWeight: FontWeight.w600),
+                                              ),
+                                            ))
+                                        .toList(),
+                                  ),
+                                ],
+                              ),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ] else if (role == UserRoles.company) ...[
+                      _buildSectionContainer(
+                        title: 'Company Business Information',
+                        icon: Icons.business_outlined,
+                        color: roleColor,
+                        children: [
+                          _buildInfoRow(
+                            'Company Name',
+                            (company['companyName'] as String?) ??
+                                widget.user.name,
+                          ),
+                          _buildInfoRow(
+                            'Industry',
+                            (company['industry'] as String?) ?? 'Not specified',
+                          ),
+                          _buildInfoRow(
+                            'Registration No. (CIN)',
+                            (companyVerif['businessRegNumber'] as String?) ??
+                                'Not specified',
+                          ),
+                          _buildInfoRow(
+                            'GST Number',
+                            (company['gstNumber'] as String?) ??
+                                (companyVerif['gstNumber'] as String?) ??
+                                'Not specified',
+                          ),
+                          _buildInfoRow(
+                            'Head Office Location',
+                            (company['headOfficeLocation'] as String?) ??
+                                (company['city'] as String?) ??
+                                'Not specified',
+                          ),
+                          _buildInfoRow(
+                            'Website',
+                            (company['website'] as String?) ?? 'Not specified',
+                          ),
+                          _buildInfoRow(
+                            'Company Size',
+                            (company['employeeCount'] as String?) ??
+                                'Not specified',
+                          ),
+                          if (company['description'] != null &&
+                              (company['description'] as String).trim().isNotEmpty)
+                            _buildInfoRow(
+                              'About Company',
+                              (company['description'] as String).trim(),
+                            ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ] else ...[
+                      _buildSectionContainer(
+                        title: 'Customer Verification Status',
+                        icon: Icons.verified_user_outlined,
+                        color: roleColor,
+                        children: const [
+                          Padding(
+                            padding: EdgeInsets.symmetric(vertical: 4),
+                            child: Text(
+                              'Customer accounts are exempt from mandatory ID document verification.',
+                              style: TextStyle(
+                                  color: Color(0xFF2E7D32),
+                                  fontWeight: FontWeight.w500,
+                                  fontSize: 13),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // Section 3: Uploaded Identification Documents
+                    _buildSectionContainer(
+                      title: 'Submitted Identification Document',
+                      icon: Icons.file_present_outlined,
+                      color: roleColor,
+                      children: [
+                        if (docUrl != null && docUrl.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Container(
+                            decoration: BoxDecoration(
+                              color: Colors.grey[100],
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: Colors.grey[300]!),
+                            ),
+                            clipBehavior: Clip.antiAlias,
+                            child: Column(
+                              children: [
+                                InkWell(
+                                  onTap: () => _openImageViewer(docUrl),
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      SizedBox(
+                                        height: 190,
+                                        width: double.infinity,
+                                        child: WebImageLoader.loadImage(
+                                          imageUrl: docUrl,
+                                          fit: BoxFit.cover,
+                                        ),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(
+                                            horizontal: 14, vertical: 8),
+                                        decoration: BoxDecoration(
+                                          color: Colors.black.withValues(alpha: 0.65),
+                                          borderRadius:
+                                              BorderRadius.circular(20),
+                                        ),
+                                        child: const Row(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Icon(Icons.zoom_in,
+                                                color: Colors.white, size: 18),
+                                            SizedBox(width: 6),
+                                            Text(
+                                              'Tap to Zoom & Inspect',
+                                              style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontWeight: FontWeight.w600,
+                                                  fontSize: 13),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 8),
+                                  color: Colors.grey[50],
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.check_circle_outline,
+                                          color: Color(0xFF2E7D32), size: 16),
+                                      const SizedBox(width: 8),
+                                      const Expanded(
+                                        child: Text(
+                                          'Document file uploaded and accessible',
+                                          style: TextStyle(
+                                              fontSize: 12,
+                                              color: Color(0xFF2E7D32),
+                                              fontWeight: FontWeight.w600),
+                                        ),
+                                      ),
+                                      TextButton.icon(
+                                        onPressed: () =>
+                                            _openImageViewer(docUrl),
+                                        icon: const Icon(Icons.fullscreen,
+                                            size: 16),
+                                        label: const Text('View Full Size'),
+                                        style: TextButton.styleFrom(
+                                          foregroundColor: const Color(0xFF1565C0),
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8),
+                                          visualDensity: VisualDensity.compact,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ] else ...[
+                          Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF5F5F5),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: Colors.grey[300]!),
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(
+                                  role == UserRoles.skilledPerson
+                                      ? Icons.fingerprint
+                                      : Icons.info_outline,
+                                  color: Colors.grey[700],
+                                  size: 22,
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: Text(
+                                    role == UserRoles.skilledPerson
+                                        ? 'Identity verified electronically via Aadhaar OTP & Biometric scanner.'
+                                        : 'No uploaded document image was provided with this submission.',
+                                    style: TextStyle(
+                                      color: Colors.grey[800],
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+
+                    if (_isRejecting) ...[
+                      const SizedBox(height: 18),
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF2F2),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFEF9A9A)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Row(
+                              children: [
+                                Icon(Icons.gavel_rounded,
+                                    color: Color(0xFFC62828), size: 18),
+                                SizedBox(width: 8),
+                                Text(
+                                  'Decline Verification Reason',
+                                  style: TextStyle(
+                                    color: Color(0xFFC62828),
+                                    fontWeight: FontWeight.bold,
+                                    fontSize: 14,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            TextField(
+                              controller: _reasonController,
+                              maxLines: 2,
+                              decoration: const InputDecoration(
+                                labelText: 'Reason for Declining',
+                                hintText:
+                                    'e.g. Blurry driving license, mismatched name...',
+                                border: OutlineInputBorder(),
+                                filled: true,
+                                fillColor: Colors.white,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.end,
+                              children: [
+                                TextButton(
+                                  onPressed: () =>
+                                      setState(() => _isRejecting = false),
+                                  child: const Text('Cancel'),
+                                ),
+                                const SizedBox(width: 8),
+                                ElevatedButton.icon(
+                                  onPressed: () {
+                                    final reason =
+                                        _reasonController.text.trim();
+                                    widget.onReject(reason.isNotEmpty
+                                        ? reason
+                                        : 'Verification details did not meet criteria.');
+                                  },
+                                  icon: const Icon(Icons.cancel_outlined,
+                                      size: 16),
+                                  label: const Text('Confirm Decline'),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFFC62828),
+                                    foregroundColor: Colors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ],
                 ),
               ),
-              PopupMenuButton<String>(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(14),
-                ),
+            ),
+
+            // Bottom Action Bar
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+              decoration: BoxDecoration(
                 color: Colors.white,
-                elevation: 8,
-                onSelected: (v) {
-                  if (v == 'approve') onApproveVerification?.call();
-                  if (v == 'reject') onRejectVerification?.call();
-                  if (v == 'revoke') onRevokeVerification?.call();
-                  if (v == 'edit') onEdit();
-                  if (v == 'suspend') onSuspend();
-                  if (v == 'delete') onDelete();
-                },
-                itemBuilder: (_) => [
-                  if (isPendingVerification) ...[
-                    const PopupMenuItem(
-                      value: 'approve',
-                      child: Row(
-                        children: [
-                          Icon(Icons.verified_rounded,
-                              color: Color(0xFF1B8A3E), size: 18),
-                          SizedBox(width: 8),
-                          Text('Approve Verification',
-                              style: TextStyle(
-                                  color: Color(0xFF1B8A3E),
-                                  fontWeight: FontWeight.w600)),
-                        ],
-                      ),
-                    ),
-                    const PopupMenuItem(
-                      value: 'reject',
-                      child: Row(
-                        children: [
-                          Icon(Icons.cancel_rounded,
-                              color: Color(0xFFC62828), size: 18),
-                          SizedBox(width: 8),
-                          Text('Reject Verification',
-                              style: TextStyle(color: Color(0xFFC62828))),
-                        ],
-                      ),
-                    ),
-                  ],
-                  if (isVerified)
-                    const PopupMenuItem(
-                      value: 'revoke',
-                      child: Row(
-                        children: [
-                          Icon(Icons.remove_moderator_rounded,
-                              color: Color(0xFFE65100), size: 18),
-                          SizedBox(width: 8),
-                          Text('Revoke Verification',
-                              style: TextStyle(color: Color(0xFFE65100))),
-                        ],
-                      ),
-                    ),
-                  const PopupMenuItem(
-                    value: 'edit',
-                    child: Row(
+                border: Border(top: BorderSide(color: Colors.grey[200]!)),
+              ),
+              child: _isRejecting
+                  ? const SizedBox.shrink()
+                  : Row(
                       children: [
-                        Icon(Icons.edit, color: Color(0xFF1565C0), size: 18),
-                        SizedBox(width: 8),
-                        Text('Edit User'),
-                      ],
-                    ),
-                  ),
-                  PopupMenuItem(
-                    value: 'suspend',
-                    child: Row(
-                      children: [
-                        Icon(
-                          isSuspended
-                              ? Icons.check_circle_outline
-                              : Icons.block,
-                          color: isSuspended ? Colors.green : Colors.orange,
-                          size: 18,
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Close'),
                         ),
-                        const SizedBox(width: 8),
-                        Text(isSuspended ? 'Reactivate' : 'Suspend'),
+                        const Spacer(),
+                        if (widget.isPending) ...[
+                          OutlinedButton.icon(
+                            onPressed: () =>
+                                setState(() => _isRejecting = true),
+                            icon: const Icon(Icons.cancel_rounded,
+                                color: Color(0xFFC62828), size: 17),
+                            label: const Text('Decline'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFFC62828),
+                              side: const BorderSide(color: Color(0xFFEF9A9A)),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 16, vertical: 10),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          ElevatedButton.icon(
+                            onPressed: widget.onApprove,
+                            icon: const Icon(Icons.check_circle_rounded,
+                                size: 17),
+                            label: const Text('Approve Verification'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1B8A3E),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 18, vertical: 10),
+                            ),
+                          ),
+                        ] else if (widget.isVerified) ...[
+                          if (widget.onRevoke != null)
+                            OutlinedButton.icon(
+                              onPressed: widget.onRevoke,
+                              icon: const Icon(Icons.remove_moderator_rounded,
+                                  color: Color(0xFFE65100), size: 17),
+                              label: const Text('Revoke Verification'),
+                              style: OutlinedButton.styleFrom(
+                                foregroundColor: const Color(0xFFE65100),
+                                side:
+                                    const BorderSide(color: Color(0xFFFFCC80)),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 14, vertical: 10),
+                              ),
+                            ),
+                        ] else ...[
+                          ElevatedButton.icon(
+                            onPressed: widget.onApprove,
+                            icon: const Icon(Icons.check_circle_rounded,
+                                size: 17),
+                            label: const Text('Approve Verification'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF1B8A3E),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 18, vertical: 10),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSectionContainer({
+    required String title,
+    required IconData icon,
+    required Color color,
+    required List<Widget> children,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE0E0E0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(14),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(icon, size: 18, color: color),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.bold,
+                    color: color,
                   ),
-                  const PopupMenuItem(
-                    value: 'delete',
-                    child: Row(
-                      children: [
-                        Icon(Icons.delete, color: Colors.red, size: 18),
-                        SizedBox(width: 8),
-                        Text('Delete Account',
-                            style: TextStyle(color: Colors.red)),
-                      ],
-                    ),
-                  ),
-                ],
+                ),
               ),
             ],
           ),
-        ),
+          const SizedBox(height: 8),
+          const Divider(height: 1),
+          const SizedBox(height: 8),
+          ...children,
+        ],
+      ),
+    );
+  }
+
+  Widget _buildInfoRow(String label, String value,
+      {bool isMonospace = false, Color? valueColor}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 145,
+            child: Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+                fontWeight: FontWeight.w500,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: valueColor ?? const Color(0xFF212121),
+                fontFamily: isMonospace ? 'monospace' : null,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DocumentImageViewerDialog extends StatelessWidget {
+  final String imageUrl;
+
+  const _DocumentImageViewerDialog({required this.imageUrl});
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.black,
+      insetPadding: const EdgeInsets.all(12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          AppBar(
+            backgroundColor: Colors.black87,
+            elevation: 0,
+            title: const Text(
+              'Document Full View',
+              style: TextStyle(color: Colors.white, fontSize: 16),
+            ),
+            actions: [
+              IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () => Navigator.of(context).pop(),
+              ),
+            ],
+          ),
+          Flexible(
+            child: InteractiveViewer(
+              minScale: 0.5,
+              maxScale: 5.0,
+              child: WebImageLoader.loadImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.contain,
+              ),
+            ),
+          ),
+          Container(
+            padding: const EdgeInsets.all(12),
+            color: Colors.black87,
+            child: const Text(
+              'Pinch or scroll to zoom in/out | Drag to pan',
+              style: TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+          ),
+        ],
       ),
     );
   }

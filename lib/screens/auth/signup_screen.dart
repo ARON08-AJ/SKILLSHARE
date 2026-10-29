@@ -8,6 +8,7 @@ import '../main_navigation.dart';
 import '../profile/skilled_user_setup_screen.dart';
 import '../profile/customer_setup_screen.dart';
 import '../profile/company_setup_screen.dart';
+import '../profile/delivery_profile_screen.dart';
 import '../../utils/app_dialog.dart';
 import 'login_screen.dart';
 
@@ -158,6 +159,9 @@ class _SignUpScreenState extends State<SignUpScreen>
         } else if (_selectedRole == AppConstants.roleCompany) {
           Navigator.of(context).pushReplacement(
               _slideUpRoute(CompanySetupScreen(userId: userId)));
+        } else if (_selectedRole == AppConstants.roleDeliveryPartner) {
+          Navigator.of(context).pushReplacement(_slideUpRoute(
+              DeliveryProfileScreen(userId: userId, isEditing: false)));
         } else {
           Navigator.of(context)
               .pushReplacement(_slideUpRoute(const MainNavigation()));

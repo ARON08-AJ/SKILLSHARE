@@ -3631,7 +3631,8 @@ class FirestoreService {
   }
 
   /// Stream orders that are confirmed for partner delivery and unassigned.
-  Stream<List<OrderModel>> streamAvailableDeliveries() {
+  /// If [partnerId] is supplied, filters out any orders that this partner has declined.
+  Stream<List<OrderModel>> streamAvailableDeliveries([String? partnerId]) {
     return _firestore
         .collection(AppConstants.ordersCollection)
         .where('status', isEqualTo: 'confirmed')
@@ -3642,7 +3643,10 @@ class FirestoreService {
           .map((doc) => OrderModel.fromMap(doc.data(), doc.id))
           .where((o) =>
               o.isPhysicalProduct &&
-              (o.deliveryPartnerId == null || o.deliveryPartnerId!.isEmpty))
+              (o.deliveryPartnerId == null || o.deliveryPartnerId!.isEmpty) &&
+              (partnerId == null ||
+                  partnerId.isEmpty ||
+                  !o.declinedPartnerIds.contains(partnerId)))
           .toList();
       orders.sort((a, b) => b.createdAt.compareTo(a.createdAt));
       return orders;
@@ -3656,6 +3660,13 @@ class FirestoreService {
     required String deliveryPartnerName,
     DateTime? estimatedDelivery,
   }) async {
+    // Verification check: only verified delivery partners can accept orders
+    final partnerUser = await getUserById(deliveryPartnerId);
+    if (partnerUser != null && !partnerUser.isFullyVerified) {
+      throw Exception(
+          'You must be a verified delivery partner to accept delivery orders.');
+    }
+
     final ref =
         _firestore.collection(AppConstants.ordersCollection).doc(orderId);
 
@@ -3754,11 +3765,12 @@ class FirestoreService {
     }
   }
 
-  /// Partner cancels their assignment before picking it up.
-  Future<void> cancelDeliveryAssignment({
+  /// Partner declines an assigned delivery order so it immediately returns to the Available pool for other partners.
+  Future<void> declineDeliveryAssignment({
     required String orderId,
     required String deliveryPartnerId,
     required String deliveryPartnerName,
+    String? reason,
   }) async {
     final ref =
         _firestore.collection(AppConstants.ordersCollection).doc(orderId);
@@ -3775,18 +3787,19 @@ class FirestoreService {
       }
 
       final currentStatus = data['status'] as String?;
-      if (currentStatus == 'delivered' || currentStatus == 'out_for_delivery') {
+      if (currentStatus == 'delivered') {
         throw Exception(
-            'Cannot cancel a delivery that is already active or delivered.');
+            'Cannot decline a delivery that has already been delivered.');
       }
 
       transaction.update(ref, {
         'deliveryPartnerId': FieldValue.delete(),
         'deliveryPartnerName': FieldValue.delete(),
         'estimatedDelivery': FieldValue.delete(),
-        // Revert status to confirmed so seller can reassign
+        // Revert status to confirmed so other delivery partners can see and accept it
         'status': 'confirmed',
-        'statusTimeline.partner_cancelled': FieldValue.serverTimestamp(),
+        'declinedPartnerIds': FieldValue.arrayUnion([deliveryPartnerId]),
+        'statusTimeline.partner_declined': FieldValue.serverTimestamp(),
         'updatedAt': FieldValue.serverTimestamp(),
       });
       return data;
@@ -3801,16 +3814,42 @@ class FirestoreService {
       await _createNotificationRecord(
         toUserId: sellerId,
         fromUserId: deliveryPartnerId,
-        type: 'shopDeliveryCancelled',
-        title: 'Delivery Partner Cancelled',
+        type: 'shopDeliveryDeclined',
+        title: 'Delivery Partner Declined Order',
         body:
-            '$deliveryPartnerName cancelled picking up $productName. Please reassign.',
+            '$deliveryPartnerName declined the delivery of $productName. The order is now available again for other delivery partners.',
         orderId: orderId,
         productId: productId,
         productName: productName,
-        status: 'cancelled_assignment',
+        status: 'declined_assignment',
       );
     }
+  }
+
+  /// Partner passes on / declines an unassigned available order.
+  Future<void> declineAvailableOrder({
+    required String orderId,
+    required String deliveryPartnerId,
+  }) async {
+    final ref =
+        _firestore.collection(AppConstants.ordersCollection).doc(orderId);
+    await ref.update({
+      'declinedPartnerIds': FieldValue.arrayUnion([deliveryPartnerId]),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  /// Partner cancels their assignment before picking it up.
+  Future<void> cancelDeliveryAssignment({
+    required String orderId,
+    required String deliveryPartnerId,
+    required String deliveryPartnerName,
+  }) async {
+    return declineDeliveryAssignment(
+      orderId: orderId,
+      deliveryPartnerId: deliveryPartnerId,
+      deliveryPartnerName: deliveryPartnerName,
+    );
   }
 
   /// Update order delivery status (only assigned delivery partner can do this).
@@ -5206,17 +5245,32 @@ class FirestoreService {
       'verificationStatus': AppConstants.verificationApproved,
       'visibility': AppConstants.visibilityPublic,
       'isVerified': true,
+      'rejectionReason': null,
       'verifiedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    // 2. Update /users/{userId}
+    // 2. Update /company_profiles/{userId}
+    final companyDoc = _firestore
+        .collection(AppConstants.companyProfilesCollection)
+        .doc(userId);
+    batch.set(companyDoc, {
+      'verificationStatus': AppConstants.verificationApproved,
+      'isVerified': true,
+      'rejectionReason': null,
+      'verifiedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    // 3. Update /users/{userId} (covers Delivery Partners, Skilled, Companies, etc.)
     final userDoc = _firestore
         .collection(AppConstants.usersCollection)
         .doc(userId);
     batch.set(userDoc, {
       'isVerified': true,
       'verificationStatus': AppConstants.verificationApproved,
+      'rejectionReason': null,
+      'verifiedAt': FieldValue.serverTimestamp(),
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
@@ -5235,6 +5289,7 @@ class FirestoreService {
             'verificationStatus': AppConstants.verificationApproved,
             'visibility': AppConstants.visibilityPublic,
             'isVerified': true,
+            'rejectionReason': null,
             'verifiedAt': FieldValue.serverTimestamp(),
             'updatedAt': FieldValue.serverTimestamp(),
           }, SetOptions(merge: true));
@@ -5242,6 +5297,18 @@ class FirestoreService {
       }
     } catch (e) {
       debugPrint('approveVerification secondary sync error: $e');
+    }
+
+    try {
+      await _createNotificationRecord(
+        toUserId: userId,
+        type: 'verification',
+        title: 'Verification Approved',
+        body: 'Congratulations! Your verification details have been reviewed and approved by the admin.',
+        status: AppConstants.verificationApproved,
+      );
+    } catch (e) {
+      debugPrint('approveVerification notification error: $e');
     }
   }
 
@@ -5261,13 +5328,25 @@ class FirestoreService {
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
-    // 2. Update /users/{userId}
+    // 2. Update /company_profiles/{userId}
+    final companyDoc = _firestore
+        .collection(AppConstants.companyProfilesCollection)
+        .doc(userId);
+    batch.set(companyDoc, {
+      'verificationStatus': AppConstants.verificationRejected,
+      'rejectionReason': reason,
+      'isVerified': false,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }, SetOptions(merge: true));
+
+    // 3. Update /users/{userId} (covers Delivery Partners, Skilled, Companies, etc.)
     final userDoc = _firestore
         .collection(AppConstants.usersCollection)
         .doc(userId);
     batch.set(userDoc, {
       'isVerified': false,
       'verificationStatus': AppConstants.verificationRejected,
+      'rejectionReason': reason,
       'updatedAt': FieldValue.serverTimestamp(),
     }, SetOptions(merge: true));
 
@@ -5292,6 +5371,18 @@ class FirestoreService {
       }
     } catch (e) {
       debugPrint('rejectVerification secondary sync error: $e');
+    }
+
+    try {
+      await _createNotificationRecord(
+        toUserId: userId,
+        type: 'verification',
+        title: 'Verification Declined',
+        body: 'Your verification was declined. Reason: $reason',
+        status: AppConstants.verificationRejected,
+      );
+    } catch (e) {
+      debugPrint('rejectVerification notification error: $e');
     }
   }
 

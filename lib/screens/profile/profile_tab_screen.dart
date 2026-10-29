@@ -19,6 +19,7 @@ import 'profile_screen.dart';
 import 'skilled_user_setup_screen.dart';
 import 'customer_setup_screen.dart';
 import 'company_setup_screen.dart';
+import 'delivery_profile_screen.dart';
 import '../portfolio/portfolio_screen.dart';
 import '../auth/login_screen.dart';
 import 'settings_screen.dart';
@@ -649,23 +650,27 @@ class _ProfileTabScreenState extends State<ProfileTabScreen>
                                     onTap: () async {
                                       if (_currentUser == null) return;
                                       Widget editScreen;
-                                      if (_currentUser!.role ==
-                                          UserRoles.skilledPerson) {
+                                      final role = UserRoles.normalizeRole(
+                                          _currentUser!.role);
+                                      if (role == UserRoles.skilledPerson) {
                                         editScreen = SkilledUserSetupScreen(
                                             userId: _currentUser!.uid,
                                             isEditing: true);
-                                      } else if (_currentUser!.role ==
-                                          UserRoles.customer) {
+                                      } else if (role == UserRoles.customer) {
                                         editScreen = CustomerSetupScreen(
                                             userId: _currentUser!.uid,
                                             isEditing: true);
-                                      } else if (_currentUser!.role ==
-                                          UserRoles.company) {
+                                      } else if (role == UserRoles.company) {
                                         editScreen = CompanySetupScreen(
                                             userId: _currentUser!.uid,
                                             isEditing: true);
+                                      } else if (role ==
+                                          UserRoles.deliveryPartner) {
+                                        editScreen = DeliveryProfileScreen(
+                                            userId: _currentUser!.uid,
+                                            isEditing: true);
                                       } else {
-                                        editScreen = SkilledUserSetupScreen(
+                                        editScreen = CustomerSetupScreen(
                                             userId: _currentUser!.uid,
                                             isEditing: true);
                                       }

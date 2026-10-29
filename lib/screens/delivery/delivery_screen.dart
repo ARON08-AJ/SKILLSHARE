@@ -12,6 +12,7 @@ import '../../utils/app_dialog.dart';
 import '../../utils/modern_pickers.dart';
 import '../../utils/web_image_loader.dart';
 import '../chat/chat_detail_screen.dart';
+import '../profile/delivery_profile_screen.dart';
 
 class DeliveryScreen extends StatefulWidget {
   const DeliveryScreen({super.key});
@@ -48,6 +49,92 @@ class _DeliveryScreenState extends State<DeliveryScreen>
       );
     }
 
+    final svc = FirestoreService();
+
+    return StreamBuilder<UserModel?>(
+      stream: svc.streamUserModel(partnerId),
+      builder: (context, userSnap) {
+        final user = userSnap.data ?? authProvider.currentUser;
+        final isVerified = user?.isFullyVerified == true;
+
+        if (!isVerified) {
+          return _buildVerificationGate(context, user, partnerId);
+        }
+
+        return Scaffold(
+          backgroundColor: const Color(0xFFF5F6FA),
+          appBar: AppBar(
+            flexibleSpace: Container(
+              decoration: const BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [Color(0xFFFF6B35), Color(0xFFFF8E53)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+              ),
+            ),
+            title: const Text(
+              'Deliveries',
+              style: TextStyle(
+                  color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
+            ),
+            bottom: TabBar(
+              controller: _tabController,
+              isScrollable: false,
+              indicatorSize: TabBarIndicatorSize.tab,
+              indicatorColor: Colors.white,
+              labelColor: Colors.white,
+              unselectedLabelColor: Colors.white70,
+              tabs: const [
+                Tab(text: 'My Deliveries'),
+                Tab(text: 'Available'),
+              ],
+            ),
+            elevation: 0,
+          ),
+          body: TabBarView(
+            controller: _tabController,
+            children: [
+              _MyDeliveriesTab(partnerId: partnerId, partnerName: partnerName),
+              _AvailableDeliveriesTab(
+                  partnerId: partnerId, partnerName: partnerName),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildVerificationGate(
+      BuildContext context, UserModel? user, String partnerId) {
+    final status = (user?.verificationStatus ?? '').toLowerCase().trim();
+    final isSubmitted = status == 'submitted' || status == 'pending';
+    final isRejected = status == 'rejected';
+
+    final Color statusColor = isSubmitted
+        ? const Color(0xFF1976D2)
+        : (isRejected ? const Color(0xFFC62828) : const Color(0xFFFF6B35));
+
+    final IconData statusIcon = isSubmitted
+        ? Icons.hourglass_top_rounded
+        : (isRejected ? Icons.cancel_outlined : Icons.verified_user_outlined);
+
+    final String title = isSubmitted
+        ? 'Verification Pending Review'
+        : (isRejected
+            ? 'Verification Declined'
+            : 'Delivery Partner Verification Required');
+
+    final String message = isSubmitted
+        ? 'Your profile details, vehicle information, and identification documents have been submitted and are currently being reviewed by our Admin team.\n\nOnce approved, you will be able to view and accept delivery orders.'
+        : (isRejected
+            ? 'Your verification request was not approved.\n\nReason: ${user?.rejectionReason ?? "Information or documents provided did not meet requirements."}\n\nPlease update your profile details and re-upload valid documents.'
+            : 'As a delivery partner, identity and vehicle verification are required before you can view and accept delivery orders.\n\nPlease submit your profile details and government-issued driving license or ID.');
+
+    final String actionText = isSubmitted
+        ? 'View / Edit Submitted Details'
+        : (isRejected ? 'Update & Resubmit' : 'Complete Verification Now');
+
     return Scaffold(
       backgroundColor: const Color(0xFFF5F6FA),
       appBar: AppBar(
@@ -65,27 +152,93 @@ class _DeliveryScreenState extends State<DeliveryScreen>
           style: TextStyle(
               color: Colors.white, fontWeight: FontWeight.bold, fontSize: 20),
         ),
-        bottom: TabBar(
-          controller: _tabController,
-          isScrollable: false,
-          indicatorSize: TabBarIndicatorSize.tab,
-          indicatorColor: Colors.white,
-          labelColor: Colors.white,
-          unselectedLabelColor: Colors.white70,
-          tabs: const [
-            Tab(text: 'My Deliveries'),
-            Tab(text: 'Available'),
-          ],
-        ),
         elevation: 0,
       ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _MyDeliveriesTab(partnerId: partnerId, partnerName: partnerName),
-          _AvailableDeliveriesTab(
-              partnerId: partnerId, partnerName: partnerName),
-        ],
+      body: Center(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(24),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 480),
+            padding: const EdgeInsets.all(28),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(24),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.06),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(20),
+                  decoration: BoxDecoration(
+                    color: statusColor.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(statusIcon, size: 54, color: statusColor),
+                ),
+                const SizedBox(height: 20),
+                Text(
+                  title,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF1A1A2E),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 14,
+                    color: Colors.grey[700],
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 24),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    onPressed: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => DeliveryProfileScreen(
+                            userId: partnerId,
+                            isEditing: true,
+                          ),
+                        ),
+                      );
+                    },
+                    icon: Icon(isSubmitted
+                        ? Icons.visibility_rounded
+                        : Icons.arrow_forward_rounded),
+                    label: Text(actionText),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: statusColor,
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      textStyle: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -164,7 +317,7 @@ class _AvailableDeliveriesTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final svc = FirestoreService();
     return StreamBuilder<List<OrderModel>>(
-      stream: svc.streamAvailableDeliveries(),
+      stream: svc.streamAvailableDeliveries(partnerId),
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
@@ -654,12 +807,25 @@ class _DeliveryCardState extends State<_DeliveryCard> {
             const SizedBox(height: 14),
 
             // Action Buttons
-            if (!isAssigned && order.status == 'confirmed')
+            if (!isAssigned && order.status == 'confirmed') ...[
               _AcceptButton(
                 order: order,
                 partnerId: partnerId,
                 partnerName: widget.partnerName,
               ),
+              const SizedBox(height: 6),
+              Center(
+                child: TextButton.icon(
+                  onPressed: () => _declineAvailable(order, partnerId),
+                  icon: const Icon(Icons.close_rounded, size: 16),
+                  label: const Text('Decline this delivery'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.grey[700],
+                    textStyle: const TextStyle(fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
 
             if (isAssigned && order.status == 'out_for_delivery') ...[
               Row(
@@ -676,25 +842,61 @@ class _DeliveryCardState extends State<_DeliveryCard> {
                   const SizedBox(width: 10),
                   Expanded(
                     child: _ActionButton(
-                      label: 'Failed',
-                      icon: Icons.cancel,
-                      color: Colors.red,
-                      onTap: () =>
-                          _updateStatus(order, partnerId, 'failed_delivery'),
+                      label: 'Decline Delivery',
+                      icon: Icons.close_rounded,
+                      color: const Color(0xFFC62828),
+                      onTap: () => _declineDelivery(order, partnerId),
                     ),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
-              Center(
-                child: TextButton.icon(
-                  onPressed: () =>
-                      _updateEstimatedDelivery(context, order, partnerId),
-                  icon: const Icon(Icons.schedule, size: 18),
-                  label: const Text('Update Delivery ETA'),
-                  style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFF1976D2)),
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  TextButton.icon(
+                    onPressed: () =>
+                        _updateEstimatedDelivery(context, order, partnerId),
+                    icon: const Icon(Icons.schedule, size: 18),
+                    label: const Text('Update Delivery ETA'),
+                    style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF1976D2)),
+                  ),
+                  const SizedBox(width: 12),
+                  TextButton.icon(
+                    onPressed: () =>
+                        _updateStatus(order, partnerId, 'failed_delivery'),
+                    icon: const Icon(Icons.error_outline, size: 18),
+                    label: const Text('Mark Failed'),
+                    style: TextButton.styleFrom(
+                        foregroundColor: Colors.red[700]),
+                  ),
+                ],
+              ),
+            ],
+
+            if (isAssigned && order.status == 'failed_delivery') ...[
+              Row(
+                children: [
+                  Expanded(
+                    child: _ActionButton(
+                      label: 'Decline & Re-assign',
+                      icon: Icons.restart_alt_rounded,
+                      color: const Color(0xFFC62828),
+                      onTap: () => _declineDelivery(order, partnerId),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: _ActionButton(
+                      label: 'Retry Delivery',
+                      icon: Icons.local_shipping,
+                      color: const Color(0xFFFF6B35),
+                      onTap: () =>
+                          _updateStatus(order, partnerId, 'out_for_delivery'),
+                    ),
+                  ),
+                ],
               ),
             ],
 
@@ -829,6 +1031,82 @@ class _DeliveryCardState extends State<_DeliveryCard> {
         AppDialog.error(
           context,
           'Unable to open chat with customer',
+          detail: e.toString(),
+        );
+      }
+    }
+  }
+
+  Future<void> _declineDelivery(OrderModel order, String partnerId) async {
+    final confirmed = await AppDialog.confirm(
+      context,
+      title: 'Decline Delivery?',
+      message:
+          'Are you sure you want to decline Order #${order.id.length > 8 ? order.id.substring(0, 8).toUpperCase() : order.id.toUpperCase()}?\n\n'
+          'This order will immediately reappear in the "Available" tab for other delivery partners to accept. You will not see this order again.',
+      confirmText: 'Decline & Re-assign',
+      cancelText: 'Keep Delivery',
+      gradientColors: const [Color(0xFFD32F2F), Color(0xFFC2185B)],
+      icon: Icons.cancel_outlined,
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await FirestoreService().declineDeliveryAssignment(
+        orderId: order.id,
+        deliveryPartnerId: partnerId,
+        deliveryPartnerName: widget.partnerName,
+      );
+      if (mounted) {
+        AppDialog.success(
+          context,
+          'Delivery declined. The order has returned to the Available tab for remaining partners.',
+          title: 'Order Re-assigned',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        AppDialog.error(
+          context,
+          'Failed to decline delivery',
+          detail: e.toString(),
+        );
+      }
+    }
+  }
+
+  Future<void> _declineAvailable(OrderModel order, String partnerId) async {
+    final confirmed = await AppDialog.confirm(
+      context,
+      title: 'Decline Available Order?',
+      message:
+          'Decline Order #${order.id.length > 8 ? order.id.substring(0, 8).toUpperCase() : order.id.toUpperCase()}?\n\n'
+          'This order will be removed from your list, but remains available for other delivery partners.',
+      confirmText: 'Decline',
+      cancelText: 'Cancel',
+      gradientColors: const [Color(0xFF757575), Color(0xFF424242)],
+      icon: Icons.close_rounded,
+    );
+
+    if (confirmed != true) return;
+
+    try {
+      await FirestoreService().declineAvailableOrder(
+        orderId: order.id,
+        deliveryPartnerId: partnerId,
+      );
+      if (mounted) {
+        AppDialog.info(
+          context,
+          'Order removed from your available deliveries.',
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        AppDialog.error(
+          context,
+          'Failed to decline order',
           detail: e.toString(),
         );
       }

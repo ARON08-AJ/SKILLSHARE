@@ -23,6 +23,7 @@ import '../../utils/web_image_loader.dart';
 import 'skilled_user_setup_screen.dart';
 import 'customer_setup_screen.dart';
 import 'company_setup_screen.dart';
+import 'delivery_profile_screen.dart';
 import '../shop/add_product_screen.dart';
 import '../chat/chat_detail_screen.dart';
 import '../portfolio/portfolio_screen.dart';
@@ -1117,9 +1118,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
             setupScreen = CustomerSetupScreen(userId: widget.userId);
           } else if (_userRole == AppConstants.roleCompany) {
             setupScreen = CompanySetupScreen(userId: widget.userId);
+          } else if (_userRole == AppConstants.roleDeliveryPartner) {
+            setupScreen = DeliveryProfileScreen(userId: widget.userId, isEditing: true);
           } else {
-            // Fallback to skilled setup
-            setupScreen = SkilledUserSetupScreen(userId: widget.userId);
+            // Fallback to customer setup
+            setupScreen = CustomerSetupScreen(userId: widget.userId);
           }
 
           Navigator.of(context).pushReplacement(
@@ -1655,11 +1658,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     icon: Icons.edit_rounded,
                     colors: coverColors,
                     onTap: () async {
+                      final role = UserRoles.normalizeRole(
+                          _userRole ?? _userData?.role ?? '');
+                      Widget editScreen;
+                      if (role == UserRoles.deliveryPartner) {
+                        editScreen = DeliveryProfileScreen(
+                            userId: widget.userId, isEditing: true);
+                      } else if (role == UserRoles.company) {
+                        editScreen = CompanySetupScreen(
+                            userId: widget.userId, isEditing: true);
+                      } else if (role == UserRoles.customer) {
+                        editScreen = CustomerSetupScreen(
+                            userId: widget.userId, isEditing: true);
+                      } else {
+                        editScreen = SkilledUserSetupScreen(
+                            userId: widget.userId, isEditing: true);
+                      }
                       await Navigator.push(
                           context,
                           MaterialPageRoute(
-                              builder: (_) => SkilledUserSetupScreen(
-                                  userId: widget.userId)));
+                              builder: (_) => editScreen));
                       _loadProfile();
                     },
                   ),
