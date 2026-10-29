@@ -3662,7 +3662,7 @@ class FirestoreService {
   }) async {
     // Verification check: only verified delivery partners can accept orders
     final partnerUser = await getUserById(deliveryPartnerId);
-    if (partnerUser != null && !partnerUser.isFullyVerified) {
+    if (partnerUser == null || !partnerUser.isFullyVerified) {
       throw Exception(
           'You must be a verified delivery partner to accept delivery orders.');
     }
@@ -3796,6 +3796,7 @@ class FirestoreService {
         'deliveryPartnerId': FieldValue.delete(),
         'deliveryPartnerName': FieldValue.delete(),
         'estimatedDelivery': FieldValue.delete(),
+        'statusTimeline.out_for_delivery': FieldValue.delete(),
         // Revert status to confirmed so other delivery partners can see and accept it
         'status': 'confirmed',
         'declinedPartnerIds': FieldValue.arrayUnion([deliveryPartnerId]),

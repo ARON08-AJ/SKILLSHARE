@@ -305,7 +305,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
     if (shouldOpen != true || !mounted) return;
     await Navigator.push(
       context,
-      MaterialPageRoute(builder: (_) => CompanySetupScreen(userId: viewerId)),
+      MaterialPageRoute(
+          builder: (_) =>
+              CompanySetupScreen(userId: viewerId, isEditing: true)),
     );
   }
 
@@ -3735,7 +3737,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               context,
                               MaterialPageRoute(
                                   builder: (_) => CustomerSetupScreen(
-                                      userId: widget.userId)));
+                                      userId: widget.userId,
+                                      isEditing: true)));
                           _loadProfile();
                         },
                         child: Container(
@@ -4326,7 +4329,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               context,
                               MaterialPageRoute(
                                   builder: (_) => CompanySetupScreen(
-                                      userId: widget.userId)));
+                                      userId: widget.userId,
+                                      isEditing: true)));
                           _loadProfile();
                         },
                         child: Container(

@@ -101,18 +101,26 @@ class _DeliveryProfileScreenState extends State<DeliveryProfileScreen> {
   }
 
   void _seedForm(UserModel user) {
+    final verifData = user.verificationData ?? const {};
     _nameController.text = user.name;
     _phoneController.text = user.phone ?? '';
     _profilePhotoUrl = user.profilePhoto;
     _avatarConfig = user.avatarConfig;
 
-    _cityController.text = user.operatingCity ?? '';
-    _vehicleNumberController.text = user.vehicleNumber ?? '';
-    _licenseNumberController.text = user.licenseNumber ?? '';
-    if (user.vehicleType != null && _vehicleTypes.contains(user.vehicleType)) {
-      _vehicleType = user.vehicleType!;
+    _cityController.text = user.operatingCity ??
+        (verifData['operatingCity'] as String?) ??
+        '';
+    _vehicleNumberController.text = user.vehicleNumber ??
+        (verifData['vehicleNumber'] as String?) ??
+        '';
+    _licenseNumberController.text = user.licenseNumber ??
+        (verifData['licenseNumber'] as String?) ??
+        '';
+    final vType = user.vehicleType ?? (verifData['vehicleType'] as String?);
+    if (vType != null && _vehicleTypes.contains(vType)) {
+      _vehicleType = vType;
     }
-    _documentUrl = user.documentUrl;
+    _documentUrl = user.documentUrl ?? (verifData['documentUrl'] as String?);
 
     _hasSeededForm = true;
   }

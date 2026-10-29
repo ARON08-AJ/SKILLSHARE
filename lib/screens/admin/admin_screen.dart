@@ -2497,7 +2497,9 @@ class _VerificationDetailsDialogState
     final docUrl = widget.user.documentUrl ??
         (userVerif['documentUrl'] as String?) ??
         (userVerif['licenseUrl'] as String?) ??
+        (userVerif['drivingLicenseUrl'] as String?) ??
         (userVerif['idProofUrl'] as String?) ??
+        (userVerif['idImageUrl'] as String?) ??
         (skilled['documentUrl'] as String?) ??
         (skilledVerif['documentUrl'] as String?) ??
         (skilledVerif['idProofUrl'] as String?) ??
@@ -2803,6 +2805,7 @@ class _VerificationDetailsDialogState
                             'Driving License / ID No.',
                             widget.user.licenseNumber ??
                                 (userVerif['licenseNumber'] as String?) ??
+                                (userVerif['drivingLicenseNumber'] as String?) ??
                                 'Not specified',
                           ),
                           _buildInfoRow(
@@ -2919,6 +2922,7 @@ class _VerificationDetailsDialogState
                           _buildInfoRow(
                             'Registration No. (CIN)',
                             (companyVerif['businessRegNumber'] as String?) ??
+                                (company['businessRegNumber'] as String?) ??
                                 'Not specified',
                           ),
                           _buildInfoRow(
