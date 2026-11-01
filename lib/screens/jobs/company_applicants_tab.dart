@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../../models/job_model.dart';
 import '../../models/user_model.dart';
 import '../../models/skilled_user_profile.dart';
@@ -129,7 +129,10 @@ class _JobSummaryCard extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 4),
-                    Row(
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      crossAxisAlignment: WrapCrossAlignment.center,
                       children: [
                         Container(
                           padding: const EdgeInsets.symmetric(
@@ -147,11 +150,12 @@ class _JobSummaryCard extends StatelessWidget {
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
                         Text(
                           'Deadline: ${AppHelpers.formatDate(job.deadline)}',
                           style: TextStyle(
                               fontSize: 12, color: Colors.grey[600]),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ],
                     ),
