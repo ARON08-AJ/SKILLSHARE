@@ -792,8 +792,11 @@ class _MyShopScreenState extends State<MyShopScreen>
               ),
             ],
             const SizedBox(height: 12),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            Wrap(
+              alignment: WrapAlignment.end,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              runSpacing: 8,
               children: [
                 if (isRequested) ...[
                   OutlinedButton.icon(
@@ -804,23 +807,29 @@ class _MyShopScreenState extends State<MyShopScreen>
                       ),
                     ),
                     icon: const Icon(Icons.visibility_outlined, size: 16),
-                    label: const Text('View Details'),
+                    label: const Text(
+                      'View Details',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFF7B1FA2),
                       side: const BorderSide(color: Color(0xFFCE93D8)),
                     ),
                   ),
-                  const Spacer(),
                   TextButton(
                     onPressed: () => _rejectServiceRequest(order),
                     style: TextButton.styleFrom(foregroundColor: Colors.red),
                     child: const Text('Decline'),
                   ),
-                  const SizedBox(width: 8),
                   ElevatedButton.icon(
                     onPressed: () => _acceptServiceRequest(order),
                     icon: const Icon(Icons.check, size: 16),
-                    label: const Text('Accept Request'),
+                    label: const Text(
+                      'Accept Request',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF2E7D32),
                       foregroundColor: Colors.white,
@@ -831,13 +840,16 @@ class _MyShopScreenState extends State<MyShopScreen>
                   OutlinedButton.icon(
                     onPressed: () => _openChatWithBuyer(order),
                     icon: const Icon(Icons.chat_outlined, size: 16),
-                    label: const Text('Open Chat'),
+                    label: const Text(
+                      'Open Chat',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFF9C27B0),
                       side: const BorderSide(color: Color(0xFF9C27B0)),
                     ),
                   ),
-                  const SizedBox(width: 8),
                   ElevatedButton.icon(
                     onPressed: () => Navigator.push(
                       context,
@@ -848,6 +860,8 @@ class _MyShopScreenState extends State<MyShopScreen>
                     icon: const Icon(Icons.timeline, size: 16),
                     label: Text(
                       isFinished ? 'View Timeline' : 'Update Stage',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                     ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: isFinished

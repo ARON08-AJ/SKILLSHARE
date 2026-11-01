@@ -3192,39 +3192,56 @@ class _VerificationDetailsDialogState
               ),
               child: _isRejecting
                   ? const SizedBox.shrink()
-                  : Row(
+                  : Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      crossAxisAlignment: WrapCrossAlignment.center,
+                      spacing: 10,
+                      runSpacing: 10,
                       children: [
                         TextButton(
                           onPressed: () => Navigator.of(context).pop(),
                           child: const Text('Close'),
                         ),
-                        const Spacer(),
                         if (widget.isPending) ...[
-                          OutlinedButton.icon(
-                            onPressed: () =>
-                                setState(() => _isRejecting = true),
-                            icon: const Icon(Icons.cancel_rounded,
-                                color: Color(0xFFC62828), size: 17),
-                            label: const Text('Decline'),
-                            style: OutlinedButton.styleFrom(
-                              foregroundColor: const Color(0xFFC62828),
-                              side: const BorderSide(color: Color(0xFFEF9A9A)),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 10),
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          ElevatedButton.icon(
-                            onPressed: widget.onApprove,
-                            icon: const Icon(Icons.check_circle_rounded,
-                                size: 17),
-                            label: const Text('Approve Verification'),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF1B8A3E),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 18, vertical: 10),
-                            ),
+                          Wrap(
+                            spacing: 10,
+                            runSpacing: 8,
+                            children: [
+                              OutlinedButton.icon(
+                                onPressed: () =>
+                                    setState(() => _isRejecting = true),
+                                icon: const Icon(Icons.cancel_rounded,
+                                    color: Color(0xFFC62828), size: 17),
+                                label: const Text(
+                                  'Decline',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: OutlinedButton.styleFrom(
+                                  foregroundColor: const Color(0xFFC62828),
+                                  side:
+                                      const BorderSide(color: Color(0xFFEF9A9A)),
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 10),
+                                ),
+                              ),
+                              ElevatedButton.icon(
+                                onPressed: widget.onApprove,
+                                icon: const Icon(Icons.check_circle_rounded,
+                                    size: 17),
+                                label: const Text(
+                                  'Approve Verification',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF1B8A3E),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 18, vertical: 10),
+                                ),
+                              ),
+                            ],
                           ),
                         ] else if (widget.isVerified) ...[
                           if (widget.onRevoke != null)
@@ -3232,7 +3249,11 @@ class _VerificationDetailsDialogState
                               onPressed: widget.onRevoke,
                               icon: const Icon(Icons.remove_moderator_rounded,
                                   color: Color(0xFFE65100), size: 17),
-                              label: const Text('Revoke Verification'),
+                              label: const Text(
+                                'Revoke Verification',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
                               style: OutlinedButton.styleFrom(
                                 foregroundColor: const Color(0xFFE65100),
                                 side:
@@ -3246,7 +3267,11 @@ class _VerificationDetailsDialogState
                             onPressed: widget.onApprove,
                             icon: const Icon(Icons.check_circle_rounded,
                                 size: 17),
-                            label: const Text('Approve Verification'),
+                            label: const Text(
+                              'Approve Verification',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: const Color(0xFF1B8A3E),
                               foregroundColor: Colors.white,

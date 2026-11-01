@@ -828,73 +828,121 @@ class _DeliveryCardState extends State<_DeliveryCard> {
             ],
 
             if (isAssigned && order.status == 'out_for_delivery') ...[
-              Row(
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
                 children: [
-                  Expanded(
-                    child: _ActionButton(
-                      label: 'Mark Delivered',
-                      icon: Icons.check_circle,
-                      color: Colors.green,
-                      onTap: () =>
-                          _updateStatus(order, partnerId, 'delivered'),
-                    ),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      return SizedBox(
+                        width: constraints.maxWidth > 340
+                            ? (constraints.maxWidth - 10) / 2
+                            : double.infinity,
+                        child: _ActionButton(
+                          label: 'Mark Delivered',
+                          icon: Icons.check_circle,
+                          color: Colors.green,
+                          onTap: () =>
+                              _updateStatus(order, partnerId, 'delivered'),
+                        ),
+                      );
+                    },
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _ActionButton(
-                      label: 'Decline Delivery',
-                      icon: Icons.close_rounded,
-                      color: const Color(0xFFC62828),
-                      onTap: () => _declineDelivery(order, partnerId),
-                    ),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      return SizedBox(
+                        width: constraints.maxWidth > 340
+                            ? (constraints.maxWidth - 10) / 2
+                            : double.infinity,
+                        child: _ActionButton(
+                          label: 'Decline Delivery',
+                          icon: Icons.close_rounded,
+                          color: const Color(0xFFC62828),
+                          onTap: () => _declineDelivery(order, partnerId),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  TextButton.icon(
-                    onPressed: () =>
-                        _updateEstimatedDelivery(context, order, partnerId),
-                    icon: const Icon(Icons.schedule, size: 18),
-                    label: const Text('Update Delivery ETA'),
-                    style: TextButton.styleFrom(
-                        foregroundColor: const Color(0xFF1976D2)),
-                  ),
-                  const SizedBox(width: 12),
-                  TextButton.icon(
-                    onPressed: () =>
-                        _updateStatus(order, partnerId, 'failed_delivery'),
-                    icon: const Icon(Icons.error_outline, size: 18),
-                    label: const Text('Mark Failed'),
-                    style: TextButton.styleFrom(
-                        foregroundColor: Colors.red[700]),
-                  ),
-                ],
+              const SizedBox(height: 6),
+              Center(
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 12,
+                  runSpacing: 4,
+                  children: [
+                    TextButton.icon(
+                      onPressed: () =>
+                          _updateEstimatedDelivery(context, order, partnerId),
+                      icon: const Icon(Icons.schedule, size: 18),
+                      label: const Text(
+                        'Update Delivery ETA',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF1976D2),
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                    TextButton.icon(
+                      onPressed: () =>
+                          _updateStatus(order, partnerId, 'failed_delivery'),
+                      icon: const Icon(Icons.error_outline, size: 18),
+                      label: const Text(
+                        'Mark Failed',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      style: TextButton.styleFrom(
+                        foregroundColor: Colors.red[700],
+                        visualDensity: VisualDensity.compact,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ],
 
             if (isAssigned && order.status == 'failed_delivery') ...[
-              Row(
+              Wrap(
+                spacing: 10,
+                runSpacing: 8,
                 children: [
-                  Expanded(
-                    child: _ActionButton(
-                      label: 'Decline & Re-assign',
-                      icon: Icons.restart_alt_rounded,
-                      color: const Color(0xFFC62828),
-                      onTap: () => _declineDelivery(order, partnerId),
-                    ),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      return SizedBox(
+                        width: constraints.maxWidth > 340
+                            ? (constraints.maxWidth - 10) / 2
+                            : double.infinity,
+                        child: _ActionButton(
+                          label: 'Decline & Re-assign',
+                          icon: Icons.restart_alt_rounded,
+                          color: const Color(0xFFC62828),
+                          onTap: () => _declineDelivery(order, partnerId),
+                        ),
+                      );
+                    },
                   ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: _ActionButton(
-                      label: 'Retry Delivery',
-                      icon: Icons.local_shipping,
-                      color: const Color(0xFFFF6B35),
-                      onTap: () =>
-                          _updateStatus(order, partnerId, 'out_for_delivery'),
-                    ),
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      return SizedBox(
+                        width: constraints.maxWidth > 340
+                            ? (constraints.maxWidth - 10) / 2
+                            : double.infinity,
+                        child: _ActionButton(
+                          label: 'Retry Delivery',
+                          icon: Icons.local_shipping,
+                          color: const Color(0xFFFF6B35),
+                          onTap: () =>
+                              _updateStatus(order, partnerId, 'out_for_delivery'),
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),
@@ -1402,11 +1450,15 @@ class _ActionButton extends StatelessWidget {
     return ElevatedButton.icon(
       onPressed: onTap,
       icon: Icon(icon, size: 18),
-      label: Text(label),
+      label: Text(
+        label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       style: ElevatedButton.styleFrom(
         backgroundColor: color,
         foregroundColor: Colors.white,
-        padding: const EdgeInsets.symmetric(vertical: 10),
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
       ),
     );
